@@ -1,5 +1,5 @@
-import { getLinesByVariation, getOpening } from '../data/openings';
-import { SideChip, TopBar } from '../components/ui';
+import { getLines, getLinesByVariation, getOpening } from '../data/openings';
+import { ProgressBar, SideChip, TopBar } from '../components/ui';
 import type { ProgressMap } from '../trainer/progress';
 
 export function VariationList({
@@ -17,19 +17,26 @@ export function VariationList({
     return null;
   }
   const groups = getLinesByVariation(openingId);
+  const allLines = getLines(openingId);
+  const masteredTotal = allLines.filter((l) => progress[l.id]?.mastered).length;
 
   return (
     <div>
       <TopBar title={opening.name} subtitle={opening.tagline} onBack={() => navigate('#/')} />
       <div class="varlist">
-        <div style={{ padding: '0 2px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <SideChip side={opening.side} />
-          <button class="mini-btn drill" onClick={() => navigate(`#/drill/${opening.id}`)}>
-            🎯 Drill all
-          </button>
+        <div class="opening-summary">
+          <div class="summary-top">
+            <SideChip side={opening.side} />
+            <button class="mini-btn drill" onClick={() => navigate(`#/drill/${opening.id}`)}>
+              🎯 Drill all
+            </button>
+          </div>
+          <ProgressBar done={masteredTotal} total={allLines.length} />
         </div>
         {opening.variations.map((variation) => {
           const lines = groups.get(variation.id) ?? [];
+          const vMastered = lines.filter((l) => progress[l.id]?.mastered).length;
+          const vPct = lines.length ? Math.round((vMastered / lines.length) * 100) : 0;
           const preview = lines[0]
             ? lines[0].plies
                 .slice(0, 6)
@@ -40,7 +47,11 @@ export function VariationList({
             <div key={variation.id} class="vargroup">
               <div class="vhead">
                 <h3>{variation.name}</h3>
+                <span class={`var-pct ${vPct === 100 ? 'done' : ''}`}>{vPct}%</span>
                 <span class="eco-chip">{variation.eco}</span>
+              </div>
+              <div class="vbar">
+                <div class="vbar-fill" style={{ width: `${vPct}%` }} />
               </div>
               <div class="var-preview">{preview} …</div>
               {lines.map((line) => {

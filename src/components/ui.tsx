@@ -68,8 +68,9 @@ export function ProgressBar({ done, total }: { done: number; total: number }) {
       <div class="progress-track">
         <div class="progress-fill" style={{ width: `${pct}%` }} />
       </div>
-      <span>
-        {done}/{total}
+      <span class="pct">{pct}%</span>
+      <span class="count">
+        {done}/{total} lines
       </span>
     </div>
   );

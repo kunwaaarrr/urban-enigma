@@ -6,6 +6,7 @@ import { MoveStrip } from '../components/MoveStrip';
 import { CoachBanner, Tool, TopBar } from '../components/ui';
 import { initTrainer, reduce, visibleHints, type Mode, type TrainerEvent, type TrainerState } from '../trainer/machine';
 import { recordResult } from '../trainer/progress';
+import { buildUserMoveShapes, type Reveal } from '../trainer/hints';
 import type { Arrow, Badge, Highlight, PlayableLine } from '../data/types';
 
 const OPPONENT_DELAY_MS = 550;
@@ -66,16 +67,22 @@ export function Trainer({ line, mode, onBack, onNextLine, onProgressChange }: Pr
   const fen = played === 0 ? START_FEN : plies[played - 1].fenAfter;
   const lastPly = played > 0 ? plies[played - 1] : null;
   const currentPly = state.plyIndex < plies.length ? plies[state.plyIndex] : null;
-  const hints = visibleHints(state);
 
   // Shapes on the board
   let arrows: Arrow[] = [];
   let highlights: Highlight[] = [];
   let badge: { square: string; type: Badge } | null = null;
 
-  if (state.phase === 'await' && currentPly && hints.arrows) {
-    arrows = currentPly.arrows ?? [];
-    highlights = currentPly.highlights ?? [];
+  if (state.phase === 'await' && currentPly) {
+    const reveal: Reveal =
+      state.mode === 'learn' ? 'full' : state.hintLevel >= 2 ? 'full' : state.hintLevel >= 1 ? 'piece' : 'none';
+    const showIdeas = state.mode === 'learn' || state.hintLevel >= 2;
+    const shapes = buildUserMoveShapes(currentPly, reveal, showIdeas);
+    arrows = shapes.arrows;
+    highlights = shapes.highlights;
+    if (reveal === 'full' && currentPly.badge) {
+      badge = { square: currentPly.to, type: currentPly.badge };
+    }
   } else if ((state.phase === 'opponent' || state.phase === 'complete') && lastPly) {
     // After an opponent move (or at the end), surface that move's annotations.
     if (lastPly.explain || state.phase === 'complete') {
