@@ -689,6 +689,98 @@ const accelPanov: Variation = {
   ],
 };
 
+// ---------------------------------------------------------------------------
+// Middlegame guides (shown on the "line complete" screen for select lines).
+// ---------------------------------------------------------------------------
+
+advanceMain.middlegame = {
+  intro:
+    "You've solved the Caro-Kann's eternal problem — the light-squared bishop is active on f5, outside the pawn chain. Now finish developing and play against White's e5 spearhead and on the queenside.",
+  plans: [
+    {
+      name: 'Finish developing & castle',
+      idea: 'Drop the dark-squared bishop on e7 and castle. Your pieces are harmonious and White has no real attack — get the king safe first.',
+      arrows: [
+        { from: 'f8', to: 'e7', color: 'green' },
+        { from: 'e8', to: 'g8', color: 'green' },
+      ],
+      sample: ['Nd2', 'Be7', 'Nb3', 'O-O'],
+    },
+    {
+      name: 'Pressure b2 with …Qb6',
+      idea: 'The queen swings to b6, hitting b2 and eyeing the queenside. With …Rc8 to follow it hands you the initiative on that wing.',
+      arrows: [
+        { from: 'd8', to: 'b6', color: 'orange' },
+        { from: 'a8', to: 'c8', color: 'orange' },
+      ],
+      highlights: [{ square: 'b2', color: 'red' }],
+      sample: ['Nd2', 'Qb6'],
+    },
+    {
+      name: 'Undermine e5 with …f6',
+      idea: 'Once castled, …f6 challenges the e5 pawn that cramps you. Opening the f-file suits your active pieces.',
+      arrows: [{ from: 'f7', to: 'f6', color: 'orange' }],
+      highlights: [{ square: 'e5', color: 'yellow' }],
+    },
+  ],
+};
+
+exchange.middlegame = {
+  intro:
+    'A Carlsbad structure with the dark-squared bishops traded off. The position is balanced and easy to play — fight for the only open file (the c-file) and good squares for your knights.',
+  plans: [
+    {
+      name: 'Seize the c-file',
+      idea: 'The c-file is the only open one. Put a rook on c8 and pressure c3/c2; doubling rooks gives you the more pleasant game.',
+      arrows: [{ from: 'a8', to: 'c8', color: 'orange' }],
+      highlights: [{ square: 'c3', color: 'yellow' }],
+      sample: ['Rae1', 'Rac8'],
+    },
+    {
+      name: 'Knight to the e4 outpost',
+      idea: '…Ne4 plants a knight in the heart of White’s camp — supported and hard to evict. From e4 it eyes c3, d2 and f2.',
+      arrows: [{ from: 'f6', to: 'e4', color: 'green' }],
+      highlights: [{ square: 'e4', color: 'blue' }],
+      sample: ['Rae1', 'Ne4'],
+    },
+    {
+      name: 'Trade light bishops on f3',
+      idea: 'If White’s knight is the best defender of the light squares, …Bxf3 removes it and leaves you a sound, symmetrical structure to grind.',
+      arrows: [{ from: 'g4', to: 'f3', color: 'orange' }],
+    },
+  ],
+};
+
+panov.middlegame = {
+  intro:
+    'White has accepted an isolated queen’s pawn (IQP) on d4. Your strategy is classic: blockade the pawn on d5, trade pieces, and target d4 — in the endgame the isolani is simply weak.',
+  plans: [
+    {
+      name: 'Blockade on d5',
+      idea: 'Your knight on d5 is the perfect blockader. Keep a piece anchored there; with the d-pawn frozen it becomes a permanent target.',
+      highlights: [
+        { square: 'd5', color: 'blue' },
+        { square: 'd4', color: 'red' },
+      ],
+    },
+    {
+      name: 'Damage the structure with …Bxc3',
+      idea: 'Trading on c3 saddles White with doubled c-pawns. You give up the bishop pair but gain a long-term structural target.',
+      arrows: [{ from: 'b4', to: 'c3', color: 'orange' }],
+      sample: ['a3', 'Bxc3', 'bxc3'],
+    },
+    {
+      name: 'Solve your last piece: …b6 & …Bb7',
+      idea: 'The c8 bishop is your only passive piece. …b6 and …Bb7 develops it to the long diagonal, adding a third attacker against d4.',
+      arrows: [
+        { from: 'b7', to: 'b6', color: 'orange' },
+        { from: 'c8', to: 'b7', color: 'green' },
+      ],
+      sample: ['O-O', 'b6'],
+    },
+  ],
+};
+
 export const caroKann: Opening = {
   id: 'caro-kann',
   name: 'Caro-Kann Defense',

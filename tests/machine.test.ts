@@ -25,7 +25,8 @@ describe('trainer machine', () => {
     expect(s0.phase).toBe('intro');
     const { state: s1, effects } = reduce(s0, { type: 'BEGIN' });
     expect(s1.phase).toBe('opponent');
-    expect(effects).toEqual([{ type: 'schedule-opponent' }]);
+    expect(effects).toContainEqual({ type: 'schedule-opponent' });
+    expect(effects).toContainEqual({ type: 'play-sound', sound: 'start' });
     const { state: s2 } = reduce(s1, { type: 'OPPONENT_DONE' });
     expect(s2.phase).toBe('await');
     expect(s2.line.plies[s2.plyIndex].isUserMove).toBe(true);
@@ -117,15 +118,31 @@ describe('trainer machine', () => {
     expect(r.effects).toEqual([]);
   });
 
-  it('seeks backward in learn mode only', () => {
+  it('reviews backward in learn mode without disturbing live play', () => {
     let s = reduce(initTrainer(ckLine, 'learn'), { type: 'BEGIN' }).state;
-    s = reduce(s, { type: 'OPPONENT_DONE' }).state;
-    s = reduce(s, { type: 'USER_MOVE', san: 'c6' }).state;
-    expect(s.plyIndex).toBe(2);
-    const back = reduce(s, { type: 'SEEK', index: 0 });
-    expect(back.state.plyIndex).toBe(0);
-    expect(back.state.phase).toBe('opponent');
+    s = reduce(s, { type: 'OPPONENT_DONE' }).state; // 1.e4 -> await c6
+    s = reduce(s, { type: 'USER_MOVE', san: 'c6' }).state; // -> opponent
+    s = reduce(s, { type: 'OPPONENT_DONE' }).state; // 2.d4 -> await
+    expect(s.phase).toBe('await');
+    const frontier = s.plyIndex;
+    expect(frontier).toBe(3);
 
+    // Seek back: the review cursor moves; live play (plyIndex/phase) is untouched.
+    const back = reduce(s, { type: 'SEEK', index: 0 });
+    expect(back.state.viewIndex).toBe(0);
+    expect(back.state.plyIndex).toBe(frontier);
+    expect(back.state.phase).toBe('await');
+    expect(visibleHints(back.state)).toEqual({ arrows: false, text: false });
+
+    // Step forward without replaying; reaching the frontier resumes live.
+    const fwd = reduce(back.state, { type: 'SEEK', index: 1 });
+    expect(fwd.state.viewIndex).toBe(1);
+    const live = reduce(fwd.state, { type: 'SEEK', index: frontier });
+    expect(live.state.viewIndex).toBeNull();
+    expect(live.state.plyIndex).toBe(frontier);
+    expect(live.state.phase).toBe('await');
+
+    // Drill mode ignores SEEK entirely.
     const drill = reduce(initTrainer(ckLine, 'drill'), { type: 'BEGIN' }).state;
     const denied = reduce(drill, { type: 'SEEK', index: 0 });
     expect(denied.state).toBe(drill);

@@ -3,10 +3,13 @@ import { START_FEN } from '../chess/start';
 import { analyzeLastMove } from '../chess/analysis';
 import { Board, type BoardMove } from '../components/Board';
 import { MoveStrip } from '../components/MoveStrip';
+import { MiddlegameControls } from '../components/MiddlegameControls';
 import { CoachBanner, Tool, TopBar } from '../components/ui';
+import { resolveSample } from '../data/flatten';
 import { initTrainer, reduce, visibleHints, type Mode, type TrainerEvent, type TrainerState } from '../trainer/machine';
 import { recordResult } from '../trainer/progress';
 import { buildUserMoveShapes, type Reveal } from '../trainer/hints';
+import { isMuted, playSound, setMuted, unlockAudio } from '../trainer/sound';
 import type { Arrow, Badge, Highlight, PlayableLine } from '../data/types';
 
 const OPPONENT_DELAY_MS = 550;
@@ -24,6 +27,9 @@ export function Trainer({ line, mode, onBack, onNextLine, onProgressChange }: Pr
   const [state, setState] = useState<TrainerState>(() => initTrainer(line, mode));
   const [wrongFlash, setWrongFlash] = useState<{ square: string; key: number } | null>(null);
   const [showComputed, setShowComputed] = useState(false);
+  const [muted, setMutedState] = useState(() => isMuted());
+  // Middlegame explorer (complete screen): which plan is open + step into its sample.
+  const [mg, setMg] = useState<{ plan: number; step: number } | null>(null);
   const timer = useRef<number | null>(null);
   const lastAttempt = useRef<BoardMove | null>(null);
 
@@ -31,10 +37,17 @@ export function Trainer({ line, mode, onBack, onNextLine, onProgressChange }: Pr
   useEffect(() => {
     setState(initTrainer(line, mode));
     setWrongFlash(null);
+    setMg(null);
     lastAttempt.current = null;
   }, [line, mode]);
 
+  // The explorer only lives on the complete screen.
+  useEffect(() => {
+    if (state.phase !== 'complete') setMg(null);
+  }, [state.phase]);
+
   function dispatch(event: TrainerEvent) {
+    unlockAudio(); // first call rides a user gesture (Start / board tap)
     setState((prev) => {
       const { state: next, effects } = reduce(prev, event);
       for (const effect of effects) {
@@ -47,6 +60,8 @@ export function Trainer({ line, mode, onBack, onNextLine, onProgressChange }: Pr
         } else if (effect.type === 'record-result') {
           recordResult(prev.line.id, effect.clean);
           onProgressChange?.();
+        } else if (effect.type === 'play-sound') {
+          playSound(effect.sound);
         }
       }
       return next;
@@ -63,7 +78,11 @@ export function Trainer({ line, mode, onBack, onNextLine, onProgressChange }: Pr
   // learn mode happens via the Start button; nothing automatic here.
 
   const { plies } = state.line;
-  const played = state.phase === 'complete' ? plies.length : state.plyIndex;
+  // The live play frontier vs. what's shown: while reviewing (viewIndex set) the
+  // board shows a past position without disturbing live play.
+  const frontierPlayed = state.phase === 'complete' ? plies.length : state.plyIndex;
+  const reviewing = state.viewIndex !== null;
+  const played = state.viewIndex ?? frontierPlayed;
   const fen = played === 0 ? START_FEN : plies[played - 1].fenAfter;
   const lastPly = played > 0 ? plies[played - 1] : null;
   const currentPly = state.plyIndex < plies.length ? plies[state.plyIndex] : null;
@@ -73,7 +92,14 @@ export function Trainer({ line, mode, onBack, onNextLine, onProgressChange }: Pr
   let highlights: Highlight[] = [];
   let badge: { square: string; type: Badge } | null = null;
 
-  if (state.phase === 'await' && currentPly) {
+  if (reviewing) {
+    // Reviewing a past move: surface that move's own annotations (no hints).
+    if (lastPly) {
+      arrows = lastPly.arrows ?? [];
+      highlights = lastPly.highlights ?? [];
+      if (lastPly.badge) badge = { square: lastPly.to, type: lastPly.badge };
+    }
+  } else if (state.phase === 'await' && currentPly) {
     const reveal: Reveal =
       state.mode === 'learn' ? 'full' : state.hintLevel >= 2 ? 'full' : state.hintLevel >= 1 ? 'piece' : 'none';
     const showIdeas = state.mode === 'learn' || state.hintLevel >= 2;
@@ -94,7 +120,7 @@ export function Trainer({ line, mode, onBack, onNextLine, onProgressChange }: Pr
     }
   }
   // Badge on the user's just-played move while the opponent "thinks".
-  if (state.phase === 'opponent' && lastPly?.isUserMove && lastPly.badge) {
+  if (!reviewing && state.phase === 'opponent' && lastPly?.isUserMove && lastPly.badge) {
     badge = { square: lastPly.to, type: lastPly.badge };
   }
 
@@ -103,17 +129,67 @@ export function Trainer({ line, mode, onBack, onNextLine, onProgressChange }: Pr
     return analyzeLastMove(lastPly.fenAfter, lastPly.to);
   }, [showComputed, lastPly]);
 
+  // --- Middlegame explorer (only on the complete screen, for authored lines) ---
+  const guide = state.phase === 'complete' ? (state.line.middlegame ?? null) : null;
+  const finalFen = plies.length ? plies[plies.length - 1].fenAfter : START_FEN;
+  const activePlan = mg && guide ? (guide.plans[mg.plan] ?? null) : null;
+  const mgSample = useMemo(() => {
+    if (!activePlan?.sample) return [];
+    try {
+      return resolveSample(finalFen, activePlan.sample);
+    } catch {
+      return [];
+    }
+  }, [activePlan, finalFen]);
+  const mgStep = mg ? Math.min(mg.step, mgSample.length) : 0;
+
+  // Board props, with the explorer taking priority when a plan is open.
+  let boardFen = fen;
+  let boardArrows = arrows;
+  let boardHighlights = highlights;
+  let boardBadge = badge;
+  let boardLastMove = lastPly ? { from: lastPly.from, to: lastPly.to } : null;
+  let boardComputed = computed;
+  if (guide && activePlan) {
+    boardFen = mgStep === 0 ? finalFen : mgSample[mgStep - 1].fenAfter;
+    boardArrows = mgStep === 0 ? (activePlan.arrows ?? []) : [];
+    boardHighlights = mgStep === 0 ? (activePlan.highlights ?? []) : [];
+    boardBadge = null;
+    boardLastMove = mgStep > 0 ? { from: mgSample[mgStep - 1].from, to: mgSample[mgStep - 1].to } : boardLastMove;
+    boardComputed = { arrows: [], highlights: [] };
+  }
+
   function handleBoardMove(move: BoardMove) {
     lastAttempt.current = move;
     dispatch({ type: 'USER_MOVE', san: move.san });
   }
 
-  const banner = bannerContent(state);
+  let banner = bannerContent(state);
+  if (guide) {
+    if (activePlan) {
+      const stepSan = mgStep > 0 ? mgSample[mgStep - 1].san : null;
+      banner = {
+        title: activePlan.name,
+        body: stepSan ? `${stepSan} — ${activePlan.idea}` : activePlan.idea,
+        badge: 'idea',
+        chip: `Plan ${(mg!.plan + 1)}/${guide.plans.length}`,
+      };
+    } else {
+      banner = {
+        title: banner.title,
+        body: guide.intro ?? banner.body,
+        badge: banner.badge,
+        sub: 'Tap a plan below to see the ideas and play out a sample.',
+      };
+    }
+  }
 
-  const interactive = state.phase === 'await';
-  const canSeekBack = mode === 'learn' && state.phase !== 'intro' && state.plyIndex > 0;
+  const interactive = state.phase === 'await' && !reviewing;
+  const canStepBack = mode === 'learn' && state.phase !== 'intro' && played > 0;
+  const canStepForward = mode === 'learn' && reviewing;
 
   function primaryAction() {
+    if (reviewing) return { label: '▶ Resume', onClick: () => dispatch({ type: 'SEEK', index: frontierPlayed }) };
     if (state.phase === 'intro') return { label: 'Start', onClick: () => dispatch({ type: 'BEGIN' }) };
     if (state.phase === 'complete') {
       if (onNextLine) return { label: 'Next Line', onClick: onNextLine };
@@ -135,25 +211,37 @@ export function Trainer({ line, mode, onBack, onNextLine, onProgressChange }: Pr
       />
       <CoachBanner title={banner.title} body={banner.body} sub={banner.sub} badge={banner.badge} chip={banner.chip} />
       <Board
-        fen={fen}
+        fen={boardFen}
         orientation={state.line.side}
-        lastMove={lastPly ? { from: lastPly.from, to: lastPly.to } : null}
-        arrows={arrows}
-        highlights={highlights}
-        computedArrows={computed.arrows}
-        computedHighlights={computed.highlights}
-        badge={badge}
+        lastMove={boardLastMove}
+        arrows={boardArrows}
+        highlights={boardHighlights}
+        computedArrows={boardComputed.arrows}
+        computedHighlights={boardComputed.highlights}
+        badge={boardBadge}
         wrongFlash={wrongFlash}
         interactive={interactive}
         onMove={handleBoardMove}
       />
+      {guide && (
+        <MiddlegameControls
+          guide={guide}
+          activePlan={mg ? mg.plan : null}
+          onSelectPlan={(i) => setMg(i === null ? null : { plan: i, step: 0 })}
+          sampleLength={mgSample.length}
+          step={mgStep}
+          onStepBack={() => setMg((m) => (m ? { ...m, step: Math.max(0, m.step - 1) } : m))}
+          onStepForward={() => setMg((m) => (m ? { ...m, step: m.step + 1 } : m))}
+        />
+      )}
       <MoveStrip
         plies={plies}
         played={played}
-        showChevrons={mode === 'learn'}
-        canBack={canSeekBack}
-        canForward={false}
-        onBack={() => dispatch({ type: 'SEEK', index: Math.max(0, state.plyIndex - 2) })}
+        showChevrons={mode === 'learn' && !(state.phase === 'complete' && !!guide)}
+        canBack={canStepBack}
+        canForward={canStepForward}
+        onBack={() => dispatch({ type: 'SEEK', index: played - 1 })}
+        onForward={() => dispatch({ type: 'SEEK', index: played + 1 })}
       />
       <div class="actionbar">
         <Tool icon="↺" label="Restart" onClick={() => dispatch({ type: 'RESTART' })} disabled={state.phase === 'intro'} />
@@ -166,6 +254,16 @@ export function Trainer({ line, mode, onBack, onNextLine, onProgressChange }: Pr
           />
         )}
         <Tool icon="👁" label="Activity" on={showComputed} onClick={() => setShowComputed((v) => !v)} disabled={!lastPly} />
+        <Tool
+          icon={muted ? '🔇' : '🔊'}
+          label={muted ? 'Muted' : 'Sound'}
+          on={!muted}
+          onClick={() => {
+            const next = !muted;
+            setMuted(next);
+            setMutedState(next);
+          }}
+        />
         {primary ? (
           <button class="btn-primary" onClick={primary.onClick}>
             {primary.label}
@@ -185,6 +283,19 @@ function bannerContent(state: TrainerState): { title: string; body?: string; sub
   const currentPly = state.plyIndex < plies.length ? plies[state.plyIndex] : null;
   const lastPly = state.plyIndex > 0 ? plies[state.plyIndex - 1] : null;
   const hints = visibleHints(state);
+
+  if (state.viewIndex !== null) {
+    const viewed = state.viewIndex > 0 ? plies[state.viewIndex - 1] : null;
+    if (!viewed) {
+      return { title: 'Start position', body: 'Use ‹ › to step through the line; ▶ Resume returns to play.', chip: state.line.eco };
+    }
+    return {
+      title: viewed.san,
+      body: viewed.explain ?? 'Reviewing. Use ‹ › to step; ▶ Resume returns to play.',
+      badge: viewed.badge ?? 'book',
+      chip: moveLabel(viewed.moveNumber, viewed.color),
+    };
+  }
 
   if (state.phase === 'intro') {
     return {

@@ -4,6 +4,19 @@ import { FILES, isLightSquare, squareFromFraction, squarePercent } from '../ches
 import { ArrowLayer } from './ArrowLayer';
 import type { Arrow, Badge, Highlight } from '../data/types';
 
+/** chess.com's default "Neo" piece theme, hotlinked from their CDN. */
+const CHESSCOM_PIECES = 'https://images.chesscomfiles.com/chess-themes/pieces/neo/150/';
+
+/** Remote chess.com sprite, e.g. wp / bk (chess.js gives lowercase types). */
+function pieceSrc(color: 'w' | 'b', type: string): string {
+  return `${CHESSCOM_PIECES}${color}${type}.png`;
+}
+
+/** Local fallback (the vendored cburnett SVGs) when the hotlink fails / offline. */
+function pieceFallback(color: 'w' | 'b', type: string): string {
+  return `${import.meta.env.BASE_URL}pieces/${color}${type.toUpperCase()}.svg`;
+}
+
 export interface BoardMove {
   from: string;
   to: string;
@@ -219,7 +232,16 @@ export function Board({
         }
         return (
           <div key={p.id} class={`piece ${p.noanim ? 'noanim' : ''} ${isDragged ? 'dragging' : ''}`} style={style}>
-            <img src={`${import.meta.env.BASE_URL}pieces/${p.color}${p.type.toUpperCase()}.svg`} alt={`${p.color}${p.type}`} draggable={false} />
+            <img
+              src={pieceSrc(p.color, p.type)}
+              onError={(e) => {
+                const img = e.currentTarget as HTMLImageElement;
+                img.onerror = null; // avoid loops if the fallback also fails
+                img.src = pieceFallback(p.color, p.type);
+              }}
+              alt={`${p.color}${p.type}`}
+              draggable={false}
+            />
           </div>
         );
       })}

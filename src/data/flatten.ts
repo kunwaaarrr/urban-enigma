@@ -1,5 +1,5 @@
 import { Chess } from 'chess.js';
-import type { Opening, PlayableLine, ResolvedPly, Step, Variation } from './types';
+import type { Opening, PlayableLine, ResolvedPly, SamplePly, Step, Variation } from './types';
 
 interface PathLeaf {
   steps: Step[];
@@ -82,10 +82,31 @@ export function flattenVariation(opening: Opening, variation: Variation): Playab
       preamble: variation.preamble,
       plies: resolvePlies(leaf.steps, variation.side, `${variation.id}${branchPath ? '#' + branchPath : ''}`),
       weight: leaf.weight,
+      // The guide is authored against the main line's final position, so only
+      // attach it there — sidelines (branches) end elsewhere.
+      middlegame: branchPath ? undefined : variation.middlegame,
     };
   });
 }
 
 export function flattenOpening(opening: Opening): PlayableLine[] {
   return opening.variations.flatMap((v) => flattenVariation(opening, v));
+}
+
+/**
+ * Resolve a sample middlegame continuation (SAN) from a line's final FEN into
+ * concrete moves for the step-through. Throws on an illegal move, so authored
+ * samples are validated the same way lines are.
+ */
+export function resolveSample(finalFen: string, sans: string[]): SamplePly[] {
+  const chess = new Chess(finalFen);
+  return sans.map((san) => {
+    let move;
+    try {
+      move = chess.move(san);
+    } catch (err) {
+      throw new Error(`Illegal sample move "${san}" from ${finalFen}: ${err}`);
+    }
+    return { san: move.san, from: move.from, to: move.to, fenAfter: chess.fen() };
+  });
 }

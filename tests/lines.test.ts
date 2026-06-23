@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Chess } from 'chess.js';
 import { OPENINGS, getAllLines, getLines } from '../src/data/openings';
+import { resolveSample } from '../src/data/flatten';
 
 const SQUARE = /^[a-h][1-8]$/;
 
@@ -74,6 +75,52 @@ describe('authored opening lines', () => {
           });
         });
       }
+    });
+  }
+});
+
+describe('middlegame guides', () => {
+  const withGuide = getAllLines().filter((l) => l.middlegame);
+
+  it('at least one line ships a middlegame guide', () => {
+    expect(withGuide.length).toBeGreaterThan(0);
+  });
+
+  for (const line of withGuide) {
+    describe(line.id, () => {
+      const guide = line.middlegame!;
+      const finalFen = line.plies[line.plies.length - 1].fenAfter;
+
+      it('has at least one plan, each with a name and idea', () => {
+        expect(guide.plans.length).toBeGreaterThan(0);
+        for (const plan of guide.plans) {
+          expect(plan.name.length).toBeGreaterThan(0);
+          expect(plan.idea.length).toBeGreaterThan(0);
+        }
+      });
+
+      it('plan arrows/highlights use valid squares', () => {
+        for (const plan of guide.plans) {
+          for (const a of plan.arrows ?? []) {
+            expect(a.from).toMatch(SQUARE);
+            expect(a.to).toMatch(SQUARE);
+            expect(a.from).not.toBe(a.to);
+          }
+          for (const h of plan.highlights ?? []) {
+            expect(h.square).toMatch(SQUARE);
+          }
+        }
+      });
+
+      it('sample continuations are legal from the final position', () => {
+        for (const plan of guide.plans) {
+          if (!plan.sample) continue;
+          expect(
+            () => resolveSample(finalFen, plan.sample!),
+            `${line.id}: plan "${plan.name}" sample illegal from ${finalFen}`,
+          ).not.toThrow();
+        }
+      });
     });
   }
 });
