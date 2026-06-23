@@ -1,17 +1,16 @@
-Sound effects sourced from the Lichess project (lichess-org/lila),
-https://github.com/lichess-org/lila (public/sound).
+Sound effects are chess.com's default-theme sounds, downloaded from their
+public CDN (images.chesscomfiles.com/chess-themes/sounds/_MP3_/default).
 
-Mapping (target file <- Lichess source):
-  move.mp3     <- standard/Move.mp3
-  capture.mp3  <- standard/Capture.mp3
-  error.mp3    <- standard/Error.mp3
-  promote.mp3  <- standard/Confirmation.mp3
-  start.mp3    <- standard/GenericNotify.mp3
-  castle.mp3   <- sfx/Move.mp3
-  check.mp3    <- sfx/Check.mp3
-  complete.mp3 <- sfx/Victory.mp3
+Mapping (target file <- chess.com source):
+  move.mp3     <- move-self.mp3
+  capture.mp3  <- capture.mp3
+  check.mp3    <- move-check.mp3
+  castle.mp3   <- castle.mp3
+  promote.mp3  <- promote.mp3
+  start.mp3    <- game-start.mp3
+  complete.mp3 <- game-end.mp3
+  error.mp3    <- illegal.mp3
 
-Lichess is licensed under the GNU AGPL v3+ (sounds included).
-See https://github.com/lichess-org/lila/blob/master/COPYING.md
-These are open-licensed stand-ins chosen to feel close to chess.com's set;
-they are not chess.com's proprietary audio.
+These are chess.com's proprietary audio assets, included here for personal,
+non-commercial use to match the chess.com experience. All rights to the
+sounds belong to Chess.com, LLC. Do not redistribute commercially.
