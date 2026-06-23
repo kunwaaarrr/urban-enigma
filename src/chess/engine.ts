@@ -1,10 +1,14 @@
 /**
- * Stockfish engine wrapper. Loads the single-threaded NNUE build in a Web
- * Worker so it runs off the main thread without needing SharedArrayBuffer —
- * which means no COOP/COEP headers, so it works on GitHub Pages as-is.
+ * Stockfish engine wrapper. Runs the vendored classical Stockfish 10 build
+ * (single-threaded WASM, ~655 KB) in a Web Worker. Single-threaded means no
+ * SharedArrayBuffer, so it needs no COOP/COEP headers and works on GitHub
+ * Pages as-is. Classical eval is plenty to find a human's mistakes — it still
+ * sees every hung piece and missed tactic — and it's far smaller/faster to
+ * load than the ~90 MB NNUE builds.
  *
- * The engine script is loaded from a CDN by default (no repo bloat); pass a
- * different `engineUrl` to self-host a vendored copy under `public/engine/`.
+ * The worker is loaded same-origin from `public/engine/` so its relative
+ * `stockfish.wasm` fetch resolves correctly (cross-origin Workers are blocked
+ * by the browser, which is why we vendor rather than hotlink a CDN).
  */
 
 export interface EngineEval {
@@ -16,7 +20,11 @@ export interface EngineEval {
   bestMove: string;
 }
 
-const DEFAULT_ENGINE_URL = 'https://cdn.jsdelivr.net/npm/stockfish@16.0.0/src/stockfish-nnue-16-single.js';
+/** Default location of the vendored worker under the app's base URL. */
+export function defaultEngineUrl(): string {
+  const base = typeof import.meta !== 'undefined' ? import.meta.env?.BASE_URL ?? '/' : '/';
+  return `${base}engine/stockfish.wasm.js`;
+}
 
 /**
  * A move can't do better than the engine's best line, so when computing
@@ -34,12 +42,8 @@ export class Engine {
   private ready: Promise<void>;
   private queue: Promise<unknown> = Promise.resolve();
 
-  constructor(engineUrl: string = DEFAULT_ENGINE_URL) {
-    // A tiny bootstrap worker that pulls the (possibly cross-origin) engine in
-    // via importScripts — allowed for workers even across origins.
-    const bootstrap = `importScripts(${JSON.stringify(engineUrl)});`;
-    const blob = new Blob([bootstrap], { type: 'application/javascript' });
-    this.worker = new Worker(URL.createObjectURL(blob));
+  constructor(engineUrl: string = defaultEngineUrl()) {
+    this.worker = new Worker(engineUrl);
     this.ready = this.handshake();
   }
 
@@ -82,8 +86,8 @@ export class Engine {
         (l) => l.startsWith('bestmove'),
         (line) => {
           if (line.startsWith('info') && line.includes(' pv ')) {
-            const cpM = line.match(/score cp (-?\d+)/);
             const mateM = line.match(/score mate (-?\d+)/);
+            const cpM = line.match(/score cp (-?\d+)/);
             if (mateM) {
               mate = parseInt(mateM[1], 10);
               cp = undefined;
@@ -105,7 +109,11 @@ export class Engine {
   }
 
   dispose() {
-    this.send('quit');
+    try {
+      this.send('quit');
+    } catch {
+      /* worker may already be gone */
+    }
     this.worker.terminate();
   }
 }

@@ -5,6 +5,17 @@ import { evalToCp, type EngineEval } from './engine';
 export type Evaluator = (fen: string, depth?: number) => Promise<EngineEval>;
 
 export type ErrorTag = 'inaccuracy' | 'mistake' | 'blunder';
+export type Phase = 'opening' | 'middlegame' | 'endgame';
+
+/** Coarse phase from material + move number, for grouping mistakes. */
+export function gamePhase(fen: string, moveNumber: number): Phase {
+  const placement = fen.split(' ')[0];
+  // Minor + major pieces still on the board (exclude kings and pawns).
+  const heavy = (placement.match(/[qrbnQRBN]/g) ?? []).length;
+  if (heavy <= 6) return 'endgame';
+  if (moveNumber <= 12) return 'opening';
+  return 'middlegame';
+}
 
 export interface MoveError {
   /** Ply index within the game (0-based). */
@@ -22,6 +33,7 @@ export interface MoveError {
   /** Centipawns lost vs. the best move (>= 0). */
   loss: number;
   tag: ErrorTag;
+  phase: Phase;
   fenBefore: string;
   fenAfter: string;
 }
@@ -113,9 +125,10 @@ export async function reviewGame(pgn: string, evaluate: Evaluator, opts: ReviewO
     const tag = classify(loss, thresholds);
     if (!tag) continue;
     const best = bestUci[i] ?? '';
+    const moveNumber = Math.floor(i / 2) + 1;
     errors.push({
       ply: i,
-      moveNumber: Math.floor(i / 2) + 1,
+      moveNumber,
       color: mv.color,
       san: mv.san,
       from: mv.from,
@@ -125,6 +138,7 @@ export async function reviewGame(pgn: string, evaluate: Evaluator, opts: ReviewO
       bestTo: best.slice(2, 4),
       loss,
       tag,
+      phase: gamePhase(fens[i], moveNumber),
       fenBefore: fens[i],
       fenAfter: i + 1 < fens.length ? fens[i + 1] : fenFinal,
     });

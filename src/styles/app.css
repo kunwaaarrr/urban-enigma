@@ -723,3 +723,137 @@ button {
 .az-mv { font-weight: 600; font-size: 14px; min-width: 64px; }
 .az-tag { font-size: 12px; color: var(--text-dim); flex: 1; }
 .az-loss { font-size: 13px; color: #f0786a; font-variant-numeric: tabular-nums; }
+
+/* ---------- Game Review: presets, report, drills ---------- */
+.az-form label.grow { flex: 1; }
+.az-presets {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.az-lbl { font-size: 12px; color: var(--text-dim); width: 48px; }
+.az-chip {
+  background: var(--raised);
+  border: 1px solid var(--raised-2);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 5px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.az-chip.on { background: var(--green); color: #1c1b19; border-color: var(--green); font-weight: 600; }
+.az-chip:disabled { opacity: 0.5; cursor: default; }
+.az-note {
+  margin-top: 12px;
+  background: var(--raised);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+.az-run {
+  margin-top: 14px;
+  width: 100%;
+  background: var(--green);
+  color: #1c1b19;
+  font-weight: 700;
+  border: none;
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 15px;
+  cursor: pointer;
+}
+.az-run:disabled { opacity: 0.6; cursor: default; }
+.az-actions { margin-top: 16px; }
+.az-drill {
+  width: 100%;
+  background: var(--raised-2);
+  color: var(--text);
+  border: 1px solid var(--green-dark);
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.az-saved { margin-top: 10px; font-size: 12px; color: var(--text-dim); text-align: center; }
+.az-link {
+  background: none;
+  border: none;
+  color: var(--green-hover);
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-decoration: underline;
+}
+
+/* report */
+.report { margin-top: 18px; }
+.rp-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.rp-stat {
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 10px 8px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rp-stat b { font-size: 18px; color: var(--text); }
+.rp-stat span { font-size: 10.5px; color: var(--text-dim); line-height: 1.2; }
+.rp-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+.rp-card { border-radius: 8px; padding: 12px; background: var(--surface); }
+.rp-card h3 { margin: 0 0 8px; font-size: 13px; }
+.rp-card.good { border-left: 3px solid var(--green); }
+.rp-card.work { border-left: 3px solid #ffa459; }
+.rp-card ul { margin: 0; padding-left: 16px; }
+.rp-card li { font-size: 12.5px; line-height: 1.5; margin-bottom: 6px; color: var(--text); }
+.rp-phases, .rp-openings { margin-top: 14px; background: var(--surface); border-radius: 8px; padding: 12px; }
+.rp-phases h3, .rp-openings h3 { margin: 0 0 10px; font-size: 13px; }
+.rp-phase { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.rp-phase-name { width: 84px; font-size: 12px; color: var(--text-dim); text-transform: capitalize; }
+.rp-phase-bars { flex: 1; display: flex; height: 12px; border-radius: 6px; overflow: hidden; background: var(--raised); }
+.rp-bar.red { background: #f0786a; }
+.rp-bar.orange { background: #ffa459; }
+.rp-bar.yellow { background: #f7c045; }
+.rp-phase-n { width: 24px; text-align: right; font-size: 12px; color: var(--text-dim); }
+.rp-legend { display: flex; gap: 14px; margin-top: 6px; font-size: 11px; color: var(--text-dim); }
+.rp-legend .dot, .wd-prompt .az-dot { display: inline-block; }
+.rp-legend i.dot { width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; }
+.rp-legend i.dot.red { background: #f0786a; }
+.rp-legend i.dot.orange { background: #ffa459; }
+.rp-legend i.dot.yellow { background: #f7c045; }
+.rp-open { display: flex; justify-content: space-between; padding: 6px 0; border-top: 1px solid var(--raised); font-size: 13px; }
+.rp-open:first-of-type { border-top: none; }
+.rp-open-score { color: var(--text-dim); }
+
+/* weakness drill */
+.wd-prompt {
+  margin: 10px 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text);
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.wd-feedback { margin-top: 10px; font-size: 14px; text-align: center; color: var(--text); }
+.wd-feedback.good { color: var(--green-hover); }
+.wd-feedback.bad { color: #f0786a; }
+.wd-controls { margin-top: 12px; text-align: center; }
+.wd-done { text-align: center; padding: 24px 0; }
+.wd-done h2 { margin: 8px 0; }
+.wd-done p { color: var(--text-dim); font-size: 13px; margin-bottom: 16px; }
+.wd-done .az-link { display: block; margin: 12px auto 0; }
+
+@media (max-width: 480px) {
+  .rp-summary { grid-template-columns: repeat(2, 1fr); }
+  .rp-cols { grid-template-columns: 1fr; }
+}

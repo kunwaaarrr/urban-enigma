@@ -1,49 +1,82 @@
-import { useMemo, useRef, useState } from 'preact/hooks';
-import { Board } from '../components/Board';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { TopBar } from '../components/ui';
-import { getRecentGames, playerColor, type ChessComGame } from '../chess/chesscom';
+import { getGames, playerColor, type TimeClass } from '../chess/chesscom';
 import { Engine } from '../chess/engine';
-import { reviewGame, type MoveError } from '../chess/review';
+import { reviewGame } from '../chess/review';
+import { buildDrills, buildProfile, type GameReview, type Profile } from '../chess/profile';
+import { clearAnalysis, loadAnalysis, saveAnalysis, savedSizeKb } from '../chess/store';
 
 const LS_USER = 'ot-chesscom-user';
-
-interface GameReview {
-  game: ChessComGame;
-  side: 'w' | 'b';
-  errors: MoveError[];
-}
+const COUNTS = [10, 25, 50, 100];
+const TIME_CLASSES: { value: TimeClass; label: string }[] = [
+  { value: 'rapid', label: 'Rapid' },
+  { value: 'blitz', label: 'Blitz' },
+  { value: 'bullet', label: 'Bullet' },
+  { value: 'all', label: 'All' },
+];
 
 type Phase = 'idle' | 'fetching' | 'analyzing' | 'done' | 'error';
 
-const TAG_LABEL = { blunder: '?? Blunder', mistake: '? Mistake', inaccuracy: '?! Inaccuracy' } as const;
-const TAG_COLOR = { blunder: 'red', mistake: 'orange', inaccuracy: 'yellow' } as const;
+function fmtClock(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
 
 export function Analyze({ navigate }: { navigate: (hash: string) => void }) {
   const [username, setUsername] = useState(() => localStorage.getItem(LS_USER) || 'Kunwar101');
-  const [days, setDays] = useState(7);
-  const [depth, setDepth] = useState(12);
+  const [count, setCount] = useState(25);
+  const [timeClass, setTimeClass] = useState<TimeClass>('rapid');
+  const [depth] = useState(14);
   const [phase, setPhase] = useState<Phase>('idle');
   const [status, setStatus] = useState('');
-  const [reviews, setReviews] = useState<GameReview[]>([]);
-  const [selected, setSelected] = useState<MoveError | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [drillCount, setDrillCount] = useState(0);
+  const [savedKb, setSavedKb] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
   const engineRef = useRef<Engine | null>(null);
+  const tick = useRef<number | null>(null);
+
+  // Show the last saved report immediately on open.
+  useEffect(() => {
+    const saved = loadAnalysis();
+    if (saved) {
+      setProfile(saved.profile);
+      setDrillCount(saved.drills.length);
+      setSavedKb(savedSizeKb());
+      setUsername(saved.username);
+      setCount(saved.params.count);
+      setTimeClass(saved.params.timeClass);
+      setStatus(`Showing your last review (${new Date(saved.savedAt).toLocaleString()}).`);
+      setPhase('done');
+    }
+    return () => {
+      if (tick.current) clearInterval(tick.current);
+    };
+  }, []);
+
+  const heavyWarning = count >= 50;
 
   async function run() {
     localStorage.setItem(LS_USER, username);
-    setReviews([]);
-    setSelected(null);
+    setProfile(null);
+    setDrillCount(0);
+    setElapsed(0);
     setPhase('fetching');
-    setStatus(`Fetching ${username}'s last ${days} days of games…`);
+    setStatus(`Fetching ${username}'s ${count} most recent ${timeClass === 'all' ? '' : timeClass + ' '}games…`);
+    const startedAt = Date.now();
+    if (tick.current) clearInterval(tick.current);
+    tick.current = window.setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+
     try {
-      const games = await getRecentGames(username, days);
+      const games = await getGames(username, { max: count, timeClass });
       if (games.length === 0) {
-        setPhase('done');
-        setStatus('No standard games found in that window.');
+        finish('No games found for that username / time class.');
         return;
       }
       const engine = engineRef.current ?? (engineRef.current = new Engine());
       setPhase('analyzing');
-      const out: GameReview[] = [];
+      const reviews: GameReview[] = [];
       for (let g = 0; g < games.length; g++) {
         const game = games[g];
         const side = playerColor(game, username);
@@ -51,24 +84,46 @@ export function Analyze({ navigate }: { navigate: (hash: string) => void }) {
           depth,
           side,
           onProgress: (doneP, totalP) =>
-            setStatus(`Game ${g + 1}/${games.length} — analyzing move ${doneP}/${totalP}…`),
+            setStatus(`Analyzing game ${g + 1}/${games.length} — move ${doneP}/${totalP}…`),
         });
-        out.push({ game, side, errors });
-        setReviews([...out]);
+        reviews.push({ game, side, errors });
       }
-      setPhase('done');
-      setStatus(`Analyzed ${games.length} game${games.length === 1 ? '' : 's'}.`);
+
+      const prof = buildProfile(reviews, username);
+      const drills = buildDrills(reviews);
+      saveAnalysis({
+        version: 1,
+        savedAt: Date.now(),
+        username,
+        params: { count, timeClass, depth },
+        profile: prof,
+        drills,
+      });
+      setProfile(prof);
+      setDrillCount(drills.length);
+      setSavedKb(savedSizeKb());
+      finish(`Done — analyzed ${games.length} games in ${fmtClock(Math.floor((Date.now() - startedAt) / 1000))}.`);
     } catch (err) {
       setPhase('error');
       setStatus(err instanceof Error ? err.message : String(err));
+      if (tick.current) clearInterval(tick.current);
     }
   }
 
-  const totals = useMemo(() => {
-    const t = { blunder: 0, mistake: 0, inaccuracy: 0 };
-    for (const r of reviews) for (const e of r.errors) t[e.tag]++;
-    return t;
-  }, [reviews]);
+  function finish(msg: string) {
+    setPhase('done');
+    setStatus(msg);
+    if (tick.current) clearInterval(tick.current);
+  }
+
+  function onClear() {
+    clearAnalysis();
+    setProfile(null);
+    setDrillCount(0);
+    setSavedKb(0);
+    setStatus('Saved review cleared from this device.');
+    setPhase('idle');
+  }
 
   const busy = phase === 'fetching' || phase === 'analyzing';
 
@@ -77,98 +132,154 @@ export function Analyze({ navigate }: { navigate: (hash: string) => void }) {
       <TopBar title="Game Review" subtitle="chess.com → Stockfish" onBack={() => navigate('#/')} />
       <div class="analyze">
         <div class="az-form">
-          <label>
+          <label class="grow">
             chess.com username
             <input value={username} onInput={(e) => setUsername((e.target as HTMLInputElement).value)} disabled={busy} />
           </label>
-          <label>
-            Days back
-            <input
-              type="number"
-              min={1}
-              max={31}
-              value={days}
-              onInput={(e) => setDays(Number((e.target as HTMLInputElement).value) || 7)}
-              disabled={busy}
-            />
-          </label>
-          <label>
-            Depth
-            <input
-              type="number"
-              min={8}
-              max={20}
-              value={depth}
-              onInput={(e) => setDepth(Number((e.target as HTMLInputElement).value) || 12)}
-              disabled={busy}
-            />
-          </label>
-          <button class="az-run" onClick={run} disabled={busy || !username.trim()}>
-            {busy ? 'Working…' : 'Analyze my games'}
-          </button>
         </div>
+
+        <div class="az-presets">
+          <span class="az-lbl">Games</span>
+          {COUNTS.map((c) => (
+            <button key={c} class={`az-chip ${count === c ? 'on' : ''}`} disabled={busy} onClick={() => setCount(c)}>
+              {c}
+            </button>
+          ))}
+        </div>
+        <div class="az-presets">
+          <span class="az-lbl">Type</span>
+          {TIME_CLASSES.map((t) => (
+            <button
+              key={t.value}
+              class={`az-chip ${timeClass === t.value ? 'on' : ''}`}
+              disabled={busy}
+              onClick={() => setTimeClass(t.value)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {heavyWarning && !busy && (
+          <div class="az-note">
+            ⏳ {count} games at depth {depth} runs entirely in your browser — expect several minutes for the full
+            personality profile. You can leave this tab open and come back; a timer shows progress.
+          </div>
+        )}
+
+        <button class="az-run" onClick={run} disabled={busy || !username.trim()}>
+          {busy ? `Working… ${fmtClock(elapsed)}` : 'Analyze my games'}
+        </button>
 
         {status && <div class={`az-status ${phase === 'error' ? 'err' : ''}`}>{status}</div>}
 
-        {reviews.length > 0 && (
-          <div class="az-totals">
-            <span class="az-pill red">{totals.blunder} blunders</span>
-            <span class="az-pill orange">{totals.mistake} mistakes</span>
-            <span class="az-pill yellow">{totals.inaccuracy} inaccuracies</span>
-          </div>
-        )}
+        {profile && <Report profile={profile} />}
 
-        {selected && (
-          <div class="az-board">
-            <Board
-              fen={selected.fenBefore}
-              orientation={selected.color}
-              arrows={[
-                { from: selected.from, to: selected.to, color: 'red' },
-                { from: selected.bestFrom, to: selected.bestTo, color: 'green' },
-              ]}
-              highlights={[]}
-              interactive={false}
-            />
-            <div class="az-board-cap">
-              You played <b>{selected.san}</b> (−{(selected.loss / 100).toFixed(1)}). Best was{' '}
-              <b class="good">{selected.bestSan}</b>.
-            </div>
-          </div>
-        )}
-
-        {reviews.map((r) => (
-          <div class="az-game" key={r.game.url}>
-            <div class="az-game-head">
-              <a href={r.game.url} target="_blank" rel="noreferrer">
-                {r.game.white.username} vs {r.game.black.username}
-              </a>
-              <span class="az-game-meta">
-                {r.game.time_class} · you played {r.side === 'w' ? 'White' : 'Black'}
-              </span>
-            </div>
-            {r.errors.length === 0 ? (
-              <div class="az-clean">No mistakes flagged 🎉</div>
-            ) : (
-              <ul class="az-errs">
-                {r.errors.map((e) => (
-                  <li key={e.ply}>
-                    <button class="az-err" onClick={() => setSelected(e)}>
-                      <span class={`az-dot ${TAG_COLOR[e.tag]}`} />
-                      <span class="az-mv">
-                        {e.moveNumber}
-                        {e.color === 'w' ? '.' : '…'} {e.san}
-                      </span>
-                      <span class="az-tag">{TAG_LABEL[e.tag]}</span>
-                      <span class="az-loss">−{(e.loss / 100).toFixed(1)}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
+        {profile && (
+          <div class="az-actions">
+            {drillCount > 0 && (
+              <button class="az-drill" onClick={() => navigate('#/wdrill')}>
+                🎯 Drill my weaknesses ({drillCount})
+              </button>
+            )}
+            {savedKb > 0 && (
+              <div class="az-saved">
+                Saved on your device ({savedKb} KB) ·{' '}
+                <button class="az-link" onClick={onClear}>
+                  Clear
+                </button>
+              </div>
             )}
           </div>
-        ))}
+        )}
       </div>
+    </div>
+  );
+}
+
+function Report({ profile: p }: { profile: Profile }) {
+  const { record } = p;
+  const total = record.wins + record.losses + record.draws || 1;
+  const scorePct = Math.round(((record.wins + record.draws * 0.5) / total) * 100);
+  return (
+    <div class="report">
+      <div class="rp-summary">
+        <div class="rp-stat">
+          <b>{p.gamesAnalyzed}</b>
+          <span>games</span>
+        </div>
+        <div class="rp-stat">
+          <b>
+            {record.wins}–{record.losses}–{record.draws}
+          </b>
+          <span>W–L–D · {scorePct}%</span>
+        </div>
+        <div class="rp-stat">
+          <b>{p.seriousPerGame}</b>
+          <span>serious mistakes / game</span>
+        </div>
+        <div class="rp-stat">
+          <b>{p.byTag.blunder}</b>
+          <span>blunders</span>
+        </div>
+      </div>
+
+      <div class="rp-cols">
+        <div class="rp-card good">
+          <h3>✅ What you do well</h3>
+          <ul>
+            {p.strengths.map((s, i) => (
+              <li key={i}>{s}</li>
+            ))}
+          </ul>
+        </div>
+        <div class="rp-card work">
+          <h3>🎯 Focus on improving</h3>
+          <ul>
+            {p.improvements.map((s, i) => (
+              <li key={i}>{s}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      <div class="rp-phases">
+        <h3>Where mistakes happen</h3>
+        {(['opening', 'middlegame', 'endgame'] as const).map((ph) => {
+          const t = p.byPhase[ph];
+          const n = t.blunder + t.mistake + t.inaccuracy;
+          return (
+            <div class="rp-phase" key={ph}>
+              <span class="rp-phase-name">{ph}</span>
+              <span class="rp-phase-bars">
+                <span class="rp-bar red" style={{ flexGrow: t.blunder }} />
+                <span class="rp-bar orange" style={{ flexGrow: t.mistake }} />
+                <span class="rp-bar yellow" style={{ flexGrow: t.inaccuracy }} />
+              </span>
+              <span class="rp-phase-n">{n}</span>
+            </div>
+          );
+        })}
+        <div class="rp-legend">
+          <span><i class="dot red" /> blunder</span>
+          <span><i class="dot orange" /> mistake</span>
+          <span><i class="dot yellow" /> inaccuracy</span>
+        </div>
+      </div>
+
+      {p.worstOpenings.length > 0 && (
+        <div class="rp-openings">
+          <h3>Openings costing you points</h3>
+          {p.worstOpenings.map((o) => (
+            <div class="rp-open" key={o.name}>
+              <span class="rp-open-name">{o.name}</span>
+              <span class="rp-open-score">
+                {o.scorePct}% · {o.games} games
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

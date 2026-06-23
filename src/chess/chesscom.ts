@@ -52,27 +52,38 @@ export async function getArchiveGames(archiveUrl: string): Promise<ChessComGame[
   return games;
 }
 
+/** 'all' accepts any time class; otherwise must match exactly. */
+export type TimeClass = 'all' | 'rapid' | 'blitz' | 'bullet' | 'daily';
+
+export interface FetchOptions {
+  /** Stop once this many matching games are collected. */
+  max: number;
+  /** Restrict to a single time class, or 'all'. */
+  timeClass?: TimeClass;
+  /** Progress callback as archives are pulled. */
+  onProgress?: (collected: number, max: number) => void;
+}
+
 /**
- * Fetch standard-chess games played within the last `days`, newest first.
- * Walks archives backward (newest month first) until past the cutoff, so a
- * 7-day window normally touches just the current month (and the previous one
- * near a month boundary).
+ * Fetch the `max` most recent standard-chess games (optionally filtered to one
+ * time class), newest first. Walks monthly archives newest → oldest and stops
+ * as soon as enough matching games are collected, so asking for 25 rapid games
+ * normally touches only the latest archive or two.
  */
-export async function getRecentGames(username: string, days = 7, now = Date.now()): Promise<ChessComGame[]> {
-  const cutoff = now / 1000 - days * 86400;
+export async function getGames(username: string, opts: FetchOptions): Promise<ChessComGame[]> {
+  const { max, timeClass = 'all', onProgress } = opts;
   const archives = await listArchives(username);
   const out: ChessComGame[] = [];
-  for (let i = archives.length - 1; i >= 0; i--) {
+  for (let i = archives.length - 1; i >= 0 && out.length < max; i--) {
     const games = await getArchiveGames(archives[i]);
-    let archiveHadOlder = false;
-    for (const g of games) {
+    // Archive is chronological; take newest first within it too.
+    for (let j = games.length - 1; j >= 0 && out.length < max; j--) {
+      const g = games[j];
       if (g.rules !== 'chess') continue;
-      if (g.end_time >= cutoff) out.push(g);
-      else archiveHadOlder = true;
+      if (timeClass !== 'all' && g.time_class !== timeClass) continue;
+      out.push(g);
+      onProgress?.(out.length, max);
     }
-    // Once we've seen a game older than the cutoff in this (newest-first)
-    // sweep, earlier archives are entirely older — stop.
-    if (archiveHadOlder) break;
   }
   return out.sort((a, b) => b.end_time - a.end_time);
 }

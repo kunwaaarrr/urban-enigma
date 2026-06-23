@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getRecentGames, playerColor, type ChessComGame } from '../src/chess/chesscom';
+import { getGames, playerColor, type ChessComGame } from '../src/chess/chesscom';
 
 function game(partial: Partial<ChessComGame> & { end_time: number }): ChessComGame {
   return {
@@ -25,68 +25,64 @@ describe('playerColor', () => {
   });
 });
 
-describe('getRecentGames', () => {
-  const NOW = 1_700_000_000_000; // fixed "now" in ms
-  const day = 86400;
-  const sec = NOW / 1000;
-
-  function stubFetch(byUrl: Record<string, unknown>) {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: string) => ({
-        ok: true,
-        status: 200,
-        json: async () => byUrl[url],
-      })),
-    );
-  }
-
-  it('keeps only standard games inside the window, newest first', async () => {
-    const archive = 'https://api.chess.com/pub/player/kunwar101/games/2023/11';
-    stubFetch({
-      'https://api.chess.com/pub/player/kunwar101/games/archives': { archives: [archive] },
-      [archive]: {
-        games: [
-          game({ end_time: sec - 1 * day }), // in window
-          game({ end_time: sec - 3 * day }), // in window
-          game({ end_time: sec - 20 * day }), // too old
-          game({ end_time: sec - 2 * day, rules: 'chess960' }), // wrong variant
-        ],
-      },
-    });
-
-    const games = await getRecentGames('Kunwar101', 7, NOW);
-    expect(games).toHaveLength(2);
-    expect(games[0].end_time).toBeGreaterThan(games[1].end_time); // sorted newest-first
-    expect(games.every((g) => g.rules === 'chess')).toBe(true);
-  });
-
-  it('stops walking once an archive contains older-than-cutoff games', async () => {
-    const nov = 'https://api.chess.com/pub/player/kunwar101/games/2023/11';
-    const oct = 'https://api.chess.com/pub/player/kunwar101/games/2023/10';
-    const octFetched = vi.fn();
+describe('getGames', () => {
+  function stubFetch(byUrl: Record<string, unknown>, onFetch?: (url: string) => void) {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
-        if (url.endsWith('/archives')) return { ok: true, status: 200, json: async () => ({ archives: [oct, nov] }) };
-        if (url === nov)
-          return {
-            ok: true,
-            status: 200,
-            json: async () => ({ games: [game({ end_time: sec - 1 * day }), game({ end_time: sec - 40 * day })] }),
-          };
-        octFetched();
-        return { ok: true, status: 200, json: async () => ({ games: [] }) };
+        onFetch?.(url);
+        return { ok: true, status: 200, json: async () => byUrl[url] };
       }),
     );
+  }
 
-    const games = await getRecentGames('kunwar101', 7, NOW);
+  const archivesUrl = 'https://api.chess.com/pub/player/kunwar101/games/archives';
+  const nov = 'https://api.chess.com/pub/player/kunwar101/games/2023/11';
+  const oct = 'https://api.chess.com/pub/player/kunwar101/games/2023/10';
+
+  it('filters by time class and returns newest first', async () => {
+    stubFetch({
+      [archivesUrl]: { archives: [nov] },
+      [nov]: {
+        games: [
+          game({ end_time: 100, time_class: 'rapid' }),
+          game({ end_time: 200, time_class: 'blitz' }),
+          game({ end_time: 300, time_class: 'rapid' }),
+        ],
+      },
+    });
+    const games = await getGames('Kunwar101', { max: 10, timeClass: 'rapid' });
+    expect(games.map((g) => g.end_time)).toEqual([300, 100]); // only rapid, newest first
+  });
+
+  it('stops once max matching games are collected, without reading older archives', async () => {
+    const seen: string[] = [];
+    stubFetch(
+      {
+        [archivesUrl]: { archives: [oct, nov] },
+        [nov]: { games: [game({ end_time: 1 }), game({ end_time: 2 }), game({ end_time: 3 })] },
+        [oct]: { games: [game({ end_time: 0 })] },
+      },
+      (u) => seen.push(u),
+    );
+    const games = await getGames('kunwar101', { max: 2, timeClass: 'all' });
+    expect(games).toHaveLength(2);
+    expect(games.map((g) => g.end_time)).toEqual([3, 2]); // newest two
+    expect(seen).not.toContain(oct); // earlier archive never fetched
+  });
+
+  it('skips non-standard variants', async () => {
+    stubFetch({
+      [archivesUrl]: { archives: [nov] },
+      [nov]: { games: [game({ end_time: 5, rules: 'chess960' }), game({ end_time: 6 })] },
+    });
+    const games = await getGames('kunwar101', { max: 10, timeClass: 'all' });
     expect(games).toHaveLength(1);
-    expect(octFetched).not.toHaveBeenCalled(); // earlier archive never touched
+    expect(games[0].end_time).toBe(6);
   });
 
   it('throws a helpful error on 404 (bad username)', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404, json: async () => ({}) })));
-    await expect(getRecentGames('nope', 7, NOW)).rejects.toThrow(/check the username/);
+    await expect(getGames('nope', { max: 5 })).rejects.toThrow(/check the username/);
   });
 });
