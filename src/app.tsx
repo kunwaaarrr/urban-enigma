@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'preact/hooks';
 import { Home } from './screens/Home';
 import { VariationList } from './screens/VariationList';
 import { Trainer } from './screens/Trainer';
+import { Analyze } from './screens/Analyze';
 import { getAllLines, getLine, getLines } from './data/openings';
 import { loadProgress, type ProgressMap } from './trainer/progress';
 import type { PlayableLine } from './data/types';
@@ -55,6 +56,10 @@ export function App() {
         onProgressChange={refreshProgress}
       />
     );
+  }
+
+  if (parts[0] === 'analyze') {
+    return <Analyze navigate={navigate} />;
   }
 
   if (parts[0] === 'drill' && parts[1]) {
