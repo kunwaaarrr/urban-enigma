@@ -42,6 +42,25 @@ export interface BranchAlt {
   line: Step[];
 }
 
+/** One typical middlegame plan shown after a line is complete. */
+export interface MgPlan {
+  /** Short label, e.g. "Minority attack" or "f5 break". */
+  name: string;
+  /** What the plan is and when to use it. */
+  idea: string;
+  /** Pawn breaks / piece routes drawn on the line's final position. */
+  arrows?: Arrow[];
+  highlights?: Highlight[];
+  /** Optional SAN continuation FROM the line's final position, to play out. */
+  sample?: string[];
+}
+
+/** "Where to go from here" guide attached to select variations. */
+export interface MgGuide {
+  intro?: string;
+  plans: MgPlan[];
+}
+
 export interface Variation {
   id: string;
   name: string;
@@ -51,6 +70,8 @@ export interface Variation {
   /** Intro banner shown before the first move. */
   preamble?: string;
   line: Step[];
+  /** Optional middlegame guide shown on the complete screen (only some lines). */
+  middlegame?: MgGuide;
 }
 
 export interface Opening {
@@ -90,4 +111,14 @@ export interface PlayableLine {
   preamble?: string;
   plies: ResolvedPly[];
   weight: number;
+  /** Copied from the source variation; shown on the complete screen. */
+  middlegame?: MgGuide;
+}
+
+/** A resolved sample-continuation move, for the middlegame step-through. */
+export interface SamplePly {
+  san: string;
+  from: string;
+  to: string;
+  fenAfter: string;
 }

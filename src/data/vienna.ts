@@ -600,6 +600,40 @@ const copycat: Variation = {
   ],
 };
 
+// ---------------------------------------------------------------------------
+// Middlegame guide (shown on the "line complete" screen for select lines).
+// ---------------------------------------------------------------------------
+
+gambitAccepted.middlegame = {
+  intro:
+    'You’ve recovered the gambit pawn and stand clearly better: a big e5 wedge, the bishop pair, open lines and a lead in development. Develop quickly and open the position against Black’s passive setup.',
+  plans: [
+    {
+      name: 'Develop & castle (often long)',
+      idea: 'Finish with Bc4/Be2 and Qd2, then castle — frequently queenside — and roll your kingside pawns. Your development lead is the asset to cash in.',
+      arrows: [
+        { from: 'f1', to: 'c4', color: 'green' },
+        { from: 'e1', to: 'c1', color: 'orange' },
+      ],
+      sample: ['Ne7', 'Qd2', 'O-O', 'O-O-O'],
+    },
+    {
+      name: 'The e5 wedge & the f7 target',
+      idea: 'The e5 pawn cramps Black, while the bishop on c4 and the half-open f-file both point at f7 — keep piling pressure on Black’s weakest square.',
+      arrows: [{ from: 'f1', to: 'c4', color: 'green' }],
+      highlights: [
+        { square: 'e5', color: 'yellow' },
+        { square: 'f7', color: 'red' },
+      ],
+    },
+    {
+      name: 'Open lines while ahead in development',
+      idea: 'Black’s pieces are still at home. Don’t rush — open the centre and files (h4-h5, the f-file) so your better-placed pieces dominate.',
+      arrows: [{ from: 'h2', to: 'h4', color: 'orange' }],
+    },
+  ],
+};
+
 export const vienna: Opening = {
   id: 'vienna',
   name: 'Vienna Gambit',

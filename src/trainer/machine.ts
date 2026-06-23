@@ -1,4 +1,5 @@
 import type { PlayableLine } from '../data/types';
+import { soundForSan, type SoundName } from './sound-map';
 
 export type Mode = 'learn' | 'drill';
 export type Phase = 'intro' | 'opponent' | 'await' | 'complete';
@@ -15,6 +16,13 @@ export interface TrainerState {
   hintsUsed: number;
   /** 0 = none, 1 = arrows, 2 = arrows + text. Learn mode ignores this (always 2). */
   hintLevel: 0 | 1 | 2;
+  /**
+   * Review cursor (Learn mode). `null` = live, sitting at the play frontier.
+   * A number = viewing the position after that many plies WITHOUT disturbing
+   * live play, so you can scrub back and forward freely. Stepping forward up to
+   * the frontier returns to `null` (live).
+   */
+  viewIndex: number | null;
   /** Set when the user played a documented alternative move. */
   alsoNote?: string;
   /** Set when the user played a wrong move (cleared on next event). */
@@ -32,7 +40,8 @@ export type TrainerEvent =
 export type TrainerEffect =
   | { type: 'schedule-opponent' }
   | { type: 'flash-wrong' }
-  | { type: 'record-result'; clean: boolean };
+  | { type: 'record-result'; clean: boolean }
+  | { type: 'play-sound'; sound: SoundName };
 
 export interface ReduceResult {
   state: TrainerState;
@@ -49,17 +58,17 @@ export function initTrainer(line: PlayableLine, mode: Mode): TrainerState {
     totalMisses: 0,
     hintsUsed: 0,
     hintLevel: 0,
+    viewIndex: null,
   };
 }
 
 function enterPly(state: TrainerState, plyIndex: number): ReduceResult {
-  const base = { ...state, plyIndex, misses: 0, hintLevel: 0 as const, alsoNote: undefined, wrongSan: undefined };
+  const base = { ...state, plyIndex, misses: 0, hintLevel: 0 as const, viewIndex: null, alsoNote: undefined, wrongSan: undefined };
   if (plyIndex >= state.line.plies.length) {
     const clean = state.totalMisses === 0 && state.hintsUsed === 0;
-    return {
-      state: { ...base, phase: 'complete' },
-      effects: state.mode === 'drill' ? [{ type: 'record-result', clean }] : [],
-    };
+    const effects: TrainerEffect[] = [{ type: 'play-sound', sound: 'complete' }];
+    if (state.mode === 'drill') effects.push({ type: 'record-result', clean });
+    return { state: { ...base, phase: 'complete' }, effects };
   }
   const ply = state.line.plies[plyIndex];
   if (ply.isUserMove) {
@@ -70,19 +79,25 @@ function enterPly(state: TrainerState, plyIndex: number): ReduceResult {
 
 export function reduce(state: TrainerState, event: TrainerEvent): ReduceResult {
   switch (event.type) {
-    case 'BEGIN':
+    case 'BEGIN': {
       if (state.phase !== 'intro') return { state, effects: [] };
-      return enterPly(state, 0);
+      const r = enterPly(state, 0);
+      return { state: r.state, effects: [{ type: 'play-sound', sound: 'start' }, ...r.effects] };
+    }
 
-    case 'OPPONENT_DONE':
+    case 'OPPONENT_DONE': {
       if (state.phase !== 'opponent') return { state, effects: [] };
-      return enterPly(state, state.plyIndex + 1);
+      const landed = state.line.plies[state.plyIndex];
+      const r = enterPly(state, state.plyIndex + 1);
+      return { state: r.state, effects: [{ type: 'play-sound', sound: soundForSan(landed.san) }, ...r.effects] };
+    }
 
     case 'USER_MOVE': {
       if (state.phase !== 'await') return { state, effects: [] };
       const ply = state.line.plies[state.plyIndex];
       if (event.san === ply.san) {
-        return enterPly(state, state.plyIndex + 1);
+        const r = enterPly(state, state.plyIndex + 1);
+        return { state: r.state, effects: [{ type: 'play-sound', sound: soundForSan(ply.san) }, ...r.effects] };
       }
       if (ply.also?.includes(event.san)) {
         return {
@@ -94,7 +109,7 @@ export function reduce(state: TrainerState, event: TrainerEvent): ReduceResult {
       const hintLevel = state.mode === 'drill' ? (misses >= 3 ? 2 : misses >= 2 ? 1 : 0) : state.hintLevel;
       return {
         state: { ...state, misses, totalMisses: state.totalMisses + 1, hintLevel, wrongSan: event.san, alsoNote: undefined },
-        effects: [{ type: 'flash-wrong' }],
+        effects: [{ type: 'flash-wrong' }, { type: 'play-sound', sound: 'error' }],
       };
     }
 
@@ -105,9 +120,14 @@ export function reduce(state: TrainerState, event: TrainerEvent): ReduceResult {
     }
 
     case 'SEEK': {
+      // Move the review cursor only — never disturb live play, so the user can
+      // scrub back and forward without replaying. Stepping up to the frontier
+      // returns to live (viewIndex = null).
       if (state.mode !== 'learn') return { state, effects: [] };
-      const index = Math.max(0, Math.min(event.index, state.line.plies.length));
-      return enterPly({ ...state, totalMisses: 0, hintsUsed: 0 }, index);
+      const frontier = state.phase === 'complete' ? state.line.plies.length : state.plyIndex;
+      const index = Math.max(0, Math.min(event.index, frontier));
+      const viewIndex = index >= frontier ? null : index;
+      return { state: { ...state, viewIndex }, effects: [] };
     }
 
     case 'RESTART':
@@ -117,6 +137,7 @@ export function reduce(state: TrainerState, event: TrainerEvent): ReduceResult {
 
 /** What hint content should currently be visible for the awaited user ply. */
 export function visibleHints(state: TrainerState): { arrows: boolean; text: boolean } {
+  if (state.viewIndex !== null) return { arrows: false, text: false };
   if (state.phase !== 'await') return { arrows: false, text: false };
   if (state.mode === 'learn') return { arrows: true, text: true };
   return { arrows: state.hintLevel >= 1, text: state.hintLevel >= 2 };

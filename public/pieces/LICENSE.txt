@@ -1,3 +1,11 @@
+These cburnett SVGs are used as a LOCAL FALLBACK only.
+
+By default the board hotlinks chess.com's "Neo" piece theme from their CDN
+(https://images.chesscomfiles.com/chess-themes/pieces/neo/...). Those images
+are chess.com's proprietary art and are loaded at runtime by the browser. If a
+hotlink fails (offline, or chess.com blocks it), the board falls back to the
+cburnett SVGs in this folder.
+
 cburnett chess piece SVGs by Colin M.L. Burnett.
 Source: https://github.com/lichess-org/lila (public/piece/cburnett)
 Licensed under GPLv2+ (https://www.gnu.org/licenses/old-licenses/gpl-2.0.html)

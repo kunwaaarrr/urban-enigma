@@ -299,6 +299,61 @@ button {
   background: var(--raised-2);
 }
 
+/* ---------- Middlegame explorer (complete screen) ---------- */
+.mg {
+  padding: 8px 12px 2px;
+}
+.mg-head {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+.mg-plans {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.mg-chip {
+  padding: 7px 11px;
+  border-radius: 999px;
+  background: var(--raised);
+  color: var(--text);
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1;
+}
+.mg-chip:active { background: var(--raised-2); }
+.mg-chip.active {
+  background: var(--green);
+  color: #1c2417;
+}
+.mg-steps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.mg-steps .chev {
+  font-size: 22px;
+  color: var(--text-dim);
+  padding: 2px 12px;
+  border-radius: 8px;
+  background: var(--raised);
+  flex: none;
+}
+.mg-steps .chev:disabled { opacity: 0.3; }
+.mg-steps .chev:not(:disabled):active { background: var(--raised-2); }
+.mg-stepinfo {
+  flex: 1;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
 /* ---------- Action bar ---------- */
 .actionbar {
   display: flex;
