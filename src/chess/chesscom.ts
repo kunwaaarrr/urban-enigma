@@ -30,9 +30,22 @@ const API = 'https://api.chess.com/pub';
 
 /** A required, descriptive UA — chess.com blocks generic/empty agents. */
 const HEADERS = { Accept: 'application/json' };
+const FETCH_TIMEOUT_MS = 15_000;
 
 async function getJSON<T>(url: string): Promise<T> {
-  const res = await fetch(url, { headers: HEADERS });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(url, { headers: HEADERS, signal: controller.signal });
+  } catch (err) {
+    if ((err as Error).name === 'AbortError') {
+      throw new Error(`Chess.com API timed out — try again or reduce the game count.`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
   if (res.status === 404) throw new Error(`Not found: ${url} (check the username)`);
   if (!res.ok) throw new Error(`chess.com API ${res.status} for ${url}`);
   return res.json() as Promise<T>;
