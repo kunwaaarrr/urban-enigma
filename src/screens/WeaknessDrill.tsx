@@ -4,6 +4,8 @@ import { TopBar } from '../components/ui';
 import { ProgressBar } from '../components/ui';
 import { isCorrectMove, type DrillPuzzle } from '../chess/profile';
 import { loadAnalysis } from '../chess/store';
+import { playSound, unlockAudio } from '../trainer/sound';
+import { soundForSan } from '../trainer/sound-map';
 
 type Status = 'solving' | 'correct' | 'revealed';
 
@@ -16,6 +18,7 @@ export function WeaknessDrill({ navigate }: { navigate: (hash: string) => void }
   const [status, setStatus] = useState<Status>('solving');
   const [wrongFlash, setWrongFlash] = useState<{ square: string; key: number } | null>(null);
   const [tries, setTries] = useState(0);
+  const [sameMove, setSameMove] = useState(false);
 
   if (drills.length === 0) {
     return (
@@ -49,6 +52,7 @@ export function WeaknessDrill({ navigate }: { navigate: (hash: string) => void }
                 setSolved(0);
                 setStatus('solving');
                 setTries(0);
+                setSameMove(false);
               }}
             >
               Drill again
@@ -66,11 +70,17 @@ export function WeaknessDrill({ navigate }: { navigate: (hash: string) => void }
   const showBest = status !== 'solving';
 
   function onMove(move: BoardMove) {
+    unlockAudio();
     if (status !== 'solving') return;
     if (isCorrectMove(p, move.from, move.to)) {
+      playSound(soundForSan(move.san));
       setStatus('correct');
       setSolved((s) => s + 1);
+      setSameMove(false);
     } else {
+      playSound('error');
+      const repeated = move.from === p.playedFrom && move.to === p.playedTo;
+      setSameMove(repeated);
       setTries((t) => t + 1);
       setWrongFlash({ square: move.to, key: Date.now() });
     }
@@ -81,6 +91,7 @@ export function WeaknessDrill({ navigate }: { navigate: (hash: string) => void }
     setStatus('solving');
     setTries(0);
     setWrongFlash(null);
+    setSameMove(false);
   }
 
   return (
@@ -117,7 +128,10 @@ export function WeaknessDrill({ navigate }: { navigate: (hash: string) => void }
             The move was <b>{p.bestSan}</b>. Play it on the board to feel it, then continue.
           </div>
         )}
-        {status === 'solving' && tries > 0 && (
+        {status === 'solving' && sameMove && (
+          <div class="wd-feedback bad">That's the same move you played in the game — think again!</div>
+        )}
+        {status === 'solving' && tries > 0 && !sameMove && (
           <div class="wd-feedback bad">Not the best — try again, or reveal the answer.</div>
         )}
 

@@ -44,6 +44,8 @@ interface PieceView {
   color: 'w' | 'b';
   square: string;
   noanim: boolean;
+  /** Source square for the slide animation; cleared after the animation ends. */
+  fromSquare?: string;
 }
 
 let nextId = 1;
@@ -57,7 +59,7 @@ function piecesFromFen(fen: string): Omit<PieceView, 'id' | 'noanim'>[] {
     .map((p) => ({ type: p.type, color: p.color, square: p.square }));
 }
 
-/** Match the new position against the previous one so moved pieces keep their id (CSS animates). */
+/** Match the new position against the previous one so moved pieces keep their id. */
 function diffPieces(prev: PieceView[], fen: string): PieceView[] {
   const target = piecesFromFen(fen);
   const used = new Set<number>();
@@ -68,7 +70,8 @@ function diffPieces(prev: PieceView[], fen: string): PieceView[] {
     const same = prev.find((p) => !used.has(p.id) && p.square === t.square && p.type === t.type && p.color === t.color);
     if (same) {
       used.add(same.id);
-      result.push({ ...same, noanim: false });
+      // Clear any lingering fromSquare from a previous animation.
+      result.push({ ...same, noanim: false, fromSquare: undefined });
     } else {
       pending.push(t);
     }
@@ -82,12 +85,13 @@ function diffPieces(prev: PieceView[], fen: string): PieceView[] {
     if (moved) {
       used.add(moved.id);
       movedCount++;
-      result.push({ id: moved.id, type: t.type, color: t.color, square: t.square, noanim: false });
+      // Record the source square so the FLIP animation knows where to start.
+      result.push({ id: moved.id, type: t.type, color: t.color, square: t.square, noanim: false, fromSquare: moved.square });
     } else {
       result.push({ id: nextId++, type: t.type, color: t.color, square: t.square, noanim: true });
     }
   }
-  // A jump bigger than one move (seek/restart): skip the animation entirely.
+  // A jump bigger than one move (seek/restart): skip animation entirely.
   if (movedCount > 3 || prev.length === 0) {
     return target.map((t) => ({ ...t, id: nextId++, noanim: true }));
   }
@@ -223,15 +227,34 @@ export function Board({
       {pieces.map((p) => {
         const pos = squarePercent(p.square, orientation);
         const isDragged = dragging?.square === p.square;
+        const isSliding = !!p.fromSquare && !p.noanim && !isDragged;
+
         let style: Record<string, string> = { left: `${pos.left}%`, top: `${pos.top}%` };
         if (isDragged && rect) {
           style = {
             left: `${((dragging.x - rect.left) / rect.width) * 100 - 6.25}%`,
             top: `${((dragging.y - rect.top) / rect.height) * 100 - 6.25}%`,
           };
+        } else if (isSliding) {
+          // FLIP: compute how far the piece needs to slide FROM its source square.
+          // squarePercent returns board-% (each square = 12.5%). The piece element
+          // is also 12.5% wide, so translate(100%) = exactly one square.
+          const from = squarePercent(p.fromSquare!, orientation);
+          const dx = ((from.left - pos.left) / 12.5) * 100;
+          const dy = ((from.top - pos.top) / 12.5) * 100;
+          style = { ...style, '--slide-x': `${dx}%`, '--slide-y': `${dy}%` };
         }
+
         return (
-          <div key={p.id} class={`piece ${p.noanim ? 'noanim' : ''} ${isDragged ? 'dragging' : ''}`} style={style}>
+          <div
+            key={p.id}
+            class={`piece${p.noanim ? ' noanim' : ''}${isDragged ? ' dragging' : ''}${isSliding ? ' sliding' : ''}`}
+            style={style}
+            onAnimationEnd={isSliding ? () => {
+              // Clear fromSquare so the animation doesn't replay on future re-renders.
+              setPieces((prev) => prev.map((pp) => (pp.id === p.id ? { ...pp, fromSquare: undefined } : pp)));
+            } : undefined}
+          >
             <img
               src={pieceSrc(p.color, p.type)}
               onError={(e) => {

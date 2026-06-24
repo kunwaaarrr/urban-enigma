@@ -135,6 +135,9 @@ describe('buildDrills', () => {
     expect(drills.map((d) => d.fen)).toEqual(['fenB', 'fenM']); // blunder first
     expect(drills.every((d) => d.tag !== 'inaccuracy')).toBe(true);
     expect(drills[0].orientation).toBe('w');
+    // played move fields come from the error's from/to
+    expect(drills[0].playedFrom).toBe('d1');
+    expect(drills[0].playedTo).toBe('h5');
   });
 
   it('caps the number of puzzles', () => {
