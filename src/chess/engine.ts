@@ -20,6 +20,14 @@ export interface EngineEval {
   bestMove: string;
 }
 
+/** One line from a MultiPV search: a candidate move and its score. */
+export interface EngineLine {
+  /** Move in UCI long form. */
+  uci: string;
+  cp?: number;
+  mate?: number;
+}
+
 /** Default location of the vendored worker under the app's base URL. */
 export function defaultEngineUrl(): string {
   const base = typeof import.meta !== 'undefined' ? import.meta.env?.BASE_URL ?? '/' : '/';
@@ -41,10 +49,17 @@ export class Engine {
   private worker: Worker;
   private ready: Promise<void>;
   private queue: Promise<unknown> = Promise.resolve();
+  /** Current MultiPV setting; we only re-send the option when it changes. */
+  private multipv = 1;
 
-  constructor(engineUrl: string = defaultEngineUrl()) {
+  /**
+   * @param hashMb Transposition-table size in MB. Bigger = fewer recomputed
+   *   positions = faster, at the cost of RAM. Kept modest so a pool of workers
+   *   doesn't blow up a phone's memory.
+   */
+  constructor(engineUrl: string = defaultEngineUrl(), hashMb = 64) {
     this.worker = new Worker(engineUrl);
-    this.ready = this.handshake();
+    this.ready = this.handshake(hashMb);
   }
 
   private send(cmd: string) {
@@ -66,11 +81,24 @@ export class Engine {
     });
   }
 
-  private async handshake(): Promise<void> {
+  private async handshake(hashMb: number): Promise<void> {
     this.send('uci');
     await this.await_((l) => l.startsWith('uciok'));
+    // Give the engine a real transposition table (default is tiny) and pin it
+    // to one thread — our WASM build is single-threaded, parallelism comes from
+    // running several workers (see EnginePool).
+    this.send(`setoption name Hash value ${hashMb}`);
+    this.send('setoption name Threads value 1');
     this.send('isready');
     await this.await_((l) => l.startsWith('readyok'));
+  }
+
+  /** Switch MultiPV only when needed (it persists on the engine). */
+  private setMultiPv(n: number) {
+    if (this.multipv !== n) {
+      this.multipv = n;
+      this.send(`setoption name MultiPV ${n}`);
+    }
   }
 
   /** Serialize evals — one `go` at a time per worker. */
@@ -108,6 +136,47 @@ export class Engine {
       return { cp, mate, bestMove };
     };
     // Chain so concurrent callers don't interleave UCI commands.
+    const result = this.queue.then(run, run);
+    this.queue = result.catch(() => undefined);
+    return result;
+  }
+
+  /**
+   * Return the top `multipv` candidate moves with their scores (from the
+   * side-to-move's perspective, best first). Used to grade "good but not best"
+   * tries in the weakness drills.
+   */
+  analyze(fen: string, depth = 12, multipv = 3): Promise<EngineLine[]> {
+    const run = async (): Promise<EngineLine[]> => {
+      await this.ready;
+      this.setMultiPv(multipv);
+      // rank (1-based) -> latest seen line for that rank
+      const byRank = new Map<number, EngineLine>();
+      this.send(`position fen ${fen}`);
+      this.send(`go depth ${depth}`);
+      const pAnalyze = this.await_(
+        (l) => l.startsWith('bestmove'),
+        (line) => {
+          if (line.startsWith('info') && line.includes(' pv ')) {
+            const rankM = line.match(/multipv (\d+)/);
+            const moveM = line.match(/ pv (\S+)/);
+            if (!moveM) return;
+            const rank = rankM ? parseInt(rankM[1], 10) : 1;
+            const mateM = line.match(/score mate (-?\d+)/);
+            const cpM = line.match(/score cp (-?\d+)/);
+            byRank.set(rank, {
+              uci: moveM[1],
+              cp: cpM ? parseInt(cpM[1], 10) : undefined,
+              mate: mateM ? parseInt(mateM[1], 10) : undefined,
+            });
+          }
+        },
+      );
+      const stopTimer = setTimeout(() => this.send('stop'), 10_000);
+      await pAnalyze;
+      clearTimeout(stopTimer);
+      return [...byRank.entries()].sort((a, b) => a[0] - b[0]).map(([, line]) => line);
+    };
     const result = this.queue.then(run, run);
     this.queue = result.catch(() => undefined);
     return result;

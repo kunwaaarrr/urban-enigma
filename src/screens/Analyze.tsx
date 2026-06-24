@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { TopBar } from '../components/ui';
 import { getGames, playerColor, type TimeClass } from '../chess/chesscom';
-import { Engine } from '../chess/engine';
+import { EnginePool, poolPlan } from '../chess/engine-pool';
 import { reviewGame } from '../chess/review';
 import { buildDrills, buildProfile, type GameReview, type Profile } from '../chess/profile';
 import { clearAnalysis, loadAnalysis, saveAnalysis, savedSizeKb } from '../chess/store';
@@ -34,7 +34,7 @@ export function Analyze({ navigate }: { navigate: (hash: string) => void }) {
   const [drillCount, setDrillCount] = useState(0);
   const [savedKb, setSavedKb] = useState(0);
   const [elapsed, setElapsed] = useState(0);
-  const engineRef = useRef<Engine | null>(null);
+  const poolRef = useRef<EnginePool | null>(null);
   const tick = useRef<number | null>(null);
 
   // Show the last saved report immediately on open.
@@ -52,6 +52,8 @@ export function Analyze({ navigate }: { navigate: (hash: string) => void }) {
     }
     return () => {
       if (tick.current) clearInterval(tick.current);
+      poolRef.current?.dispose();
+      poolRef.current = null;
     };
   }, []);
 
@@ -74,20 +76,26 @@ export function Analyze({ navigate }: { navigate: (hash: string) => void }) {
         finish('No games found for that username / time class.');
         return;
       }
-      const engine = engineRef.current ?? (engineRef.current = new Engine());
+      const plan = poolPlan();
+      const pool = poolRef.current ?? (poolRef.current = new EnginePool(plan.size, plan.hashMb));
       setPhase('analyzing');
-      const reviews: GameReview[] = [];
-      for (let g = 0; g < games.length; g++) {
-        const game = games[g];
-        const side = playerColor(game, username);
-        const errors = await reviewGame(game.pgn, (fen, d) => engine.evaluate(fen, d), {
-          depth,
-          side,
-          onProgress: (doneP, totalP) =>
-            setStatus(`Analyzing game ${g + 1}/${games.length} — move ${doneP}/${totalP}…`),
-        });
-        reviews.push({ game, side, errors });
-      }
+      // Analyze games concurrently — one per worker — for a near-linear speedup.
+      let gamesDone = 0;
+      const reviews = await Promise.all(
+        games.map((game) =>
+          pool.run(async (engine) => {
+            const side = playerColor(game, username);
+            const errors = await reviewGame(game.pgn, (fen, d) => engine.evaluate(fen, d), {
+              depth,
+              side,
+              analyze: (fen, d, mpv) => engine.analyze(fen, d, mpv),
+            });
+            gamesDone++;
+            setStatus(`Analyzed ${gamesDone}/${games.length} games (${pool.size} engines running)…`);
+            return { game, side, errors } as GameReview;
+          }),
+        ),
+      );
 
       const prof = buildProfile(reviews, username);
       const drills = buildDrills(reviews);

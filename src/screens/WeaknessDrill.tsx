@@ -2,7 +2,7 @@ import { useMemo, useState } from 'preact/hooks';
 import { Board, type BoardMove } from '../components/Board';
 import { TopBar } from '../components/ui';
 import { ProgressBar } from '../components/ui';
-import { isCorrectMove, type DrillPuzzle } from '../chess/profile';
+import { gradeDrillMove, type DrillPuzzle, type DrillVerdict } from '../chess/profile';
 import { loadAnalysis } from '../chess/store';
 import { playSound, unlockAudio } from '../trainer/sound';
 import { soundForSan } from '../trainer/sound-map';
@@ -18,7 +18,7 @@ export function WeaknessDrill({ navigate }: { navigate: (hash: string) => void }
   const [status, setStatus] = useState<Status>('solving');
   const [wrongFlash, setWrongFlash] = useState<{ square: string; key: number } | null>(null);
   const [tries, setTries] = useState(0);
-  const [sameMove, setSameMove] = useState(false);
+  const [verdict, setVerdict] = useState<DrillVerdict | null>(null);
 
   if (drills.length === 0) {
     return (
@@ -52,7 +52,7 @@ export function WeaknessDrill({ navigate }: { navigate: (hash: string) => void }
                 setSolved(0);
                 setStatus('solving');
                 setTries(0);
-                setSameMove(false);
+                setVerdict(null);
               }}
             >
               Drill again
@@ -68,20 +68,32 @@ export function WeaknessDrill({ navigate }: { navigate: (hash: string) => void }
 
   const p = drills[index];
   const showBest = status !== 'solving';
+  // 2nd/3rd engine moves that are still reasonable (within ~1 pawn of the best),
+  // surfaced as alternative suggestions once the puzzle is over.
+  const bestScore = p.alts?.[0]?.score;
+  const otherGoodMoves =
+    bestScore === undefined
+      ? []
+      : (p.alts ?? []).slice(1).filter((a) => bestScore - a.score <= 100).map((a) => a.san);
 
   function onMove(move: BoardMove) {
     unlockAudio();
     if (status !== 'solving') return;
-    if (isCorrectMove(p, move.from, move.to)) {
+    const v = gradeDrillMove(p, move.from, move.to);
+    if (v.kind === 'correct') {
       playSound(soundForSan(move.san));
       setStatus('correct');
       setSolved((s) => s + 1);
-      setSameMove(false);
+      setVerdict(null);
+      return;
+    }
+    setVerdict(v);
+    setTries((t) => t + 1);
+    if (v.kind === 'good-alt') {
+      // A reasonable move — acknowledge it without the harsh red flash.
+      playSound(soundForSan(move.san));
     } else {
       playSound('error');
-      const repeated = move.from === p.playedFrom && move.to === p.playedTo;
-      setSameMove(repeated);
-      setTries((t) => t + 1);
       setWrongFlash({ square: move.to, key: Date.now() });
     }
   }
@@ -91,7 +103,7 @@ export function WeaknessDrill({ navigate }: { navigate: (hash: string) => void }
     setStatus('solving');
     setTries(0);
     setWrongFlash(null);
-    setSameMove(false);
+    setVerdict(null);
   }
 
   return (
@@ -121,18 +133,17 @@ export function WeaknessDrill({ navigate }: { navigate: (hash: string) => void }
         {status === 'correct' && (
           <div class="wd-feedback good">
             ✅ Yes — <b>{p.bestSan}</b> was best{tries > 0 ? `, after ${tries} miss${tries === 1 ? '' : 'es'}` : ''}.
+            {otherGoodMoves.length > 0 && <span class="wd-alts"> Also good: {otherGoodMoves.join(', ')}.</span>}
           </div>
         )}
         {status === 'revealed' && (
           <div class="wd-feedback">
             The move was <b>{p.bestSan}</b>. Play it on the board to feel it, then continue.
+            {otherGoodMoves.length > 0 && <span class="wd-alts"> Other solid tries: {otherGoodMoves.join(', ')}.</span>}
           </div>
         )}
-        {status === 'solving' && sameMove && (
-          <div class="wd-feedback bad">That's the same move you played in the game — think again!</div>
-        )}
-        {status === 'solving' && tries > 0 && !sameMove && (
-          <div class="wd-feedback bad">Not the best — try again, or reveal the answer.</div>
+        {status === 'solving' && verdict && verdict.kind !== 'correct' && (
+          <div class={`wd-feedback ${verdict.kind === 'good-alt' ? 'alt' : 'bad'}`}>{verdict.message}</div>
         )}
 
         <div class="wd-controls">

@@ -854,6 +854,8 @@ button {
 .wd-feedback { margin-top: 10px; font-size: 14px; text-align: center; color: var(--text); }
 .wd-feedback.good { color: var(--green-hover); }
 .wd-feedback.bad { color: #f0786a; }
+.wd-feedback.alt { color: #e8b84b; }
+.wd-alts { display: block; margin-top: 4px; font-size: 13px; opacity: 0.75; }
 .wd-controls { margin-top: 12px; text-align: center; }
 .wd-done { text-align: center; padding: 24px 0; }
 .wd-done h2 { margin: 8px 0; }
