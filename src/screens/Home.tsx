@@ -28,6 +28,9 @@ export function Home({ progress, navigate }: { progress: ProgressMap; navigate: 
         <button class="drill-everything" onClick={() => navigate('#/drill/all')}>
           🎯 Drill everything
         </button>
+        <button class="drill-everything" onClick={() => navigate('#/analyze')}>
+          🔬 Review my chess.com games
+        </button>
       </div>
     </div>
   );
