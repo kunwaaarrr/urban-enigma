@@ -18,7 +18,10 @@ export interface DrillPuzzle {
   bestFrom: string;
   bestTo: string;
   bestSan: string;
+  /** The move the player actually played in the game (for "same move" detection). */
   playedSan: string;
+  playedFrom: string;
+  playedTo: string;
   tag: ErrorTag;
   phase: Phase;
   loss: number;
@@ -51,6 +54,8 @@ export function buildDrills(reviews: GameReview[], maxPuzzles = 60): DrillPuzzle
         bestTo: e.bestTo,
         bestSan: e.bestSan,
         playedSan: e.san,
+        playedFrom: e.from,
+        playedTo: e.to,
         tag: e.tag,
         phase: e.phase,
         loss: e.loss,
