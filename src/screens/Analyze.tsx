@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { TopBar } from '../components/ui';
-import { getGamesProgressive, playerColor, type TimeClass } from '../chess/chesscom';
+import { getGames, getGamesProgressive, playerColor, type TimeClass } from '../chess/chesscom';
 import { EnginePool, poolPlan } from '../chess/engine-pool';
 import { reviewGame } from '../chess/review';
 import { buildDrills, buildProfile, type GameReview, type Profile } from '../chess/profile';
@@ -27,6 +27,7 @@ export function Analyze({ navigate }: { navigate: (hash: string) => void }) {
   const [username, setUsername] = useState(() => localStorage.getItem(LS_USER) || 'Kunwar101');
   const [count, setCount] = useState(25);
   const [timeClass, setTimeClass] = useState<TimeClass>('rapid');
+  const [waitForAll, setWaitForAll] = useState(false);
   const [depth] = useState(14);
   const [phase, setPhase] = useState<Phase>('idle');
   const [status, setStatus] = useState('');
@@ -71,7 +72,14 @@ export function Analyze({ navigate }: { navigate: (hash: string) => void }) {
     tick.current = window.setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 1000);
 
     try {
-      const games = await getGamesProgressive(username, count, timeClass, setStatus);
+      const label = timeClass === 'all' ? '' : timeClass + ' ';
+      const games = waitForAll
+        ? await getGames(username, {
+            max: count,
+            timeClass,
+            onProgress: (c, m) => setStatus(`Fetching all ${m} ${label}games — ${c}/${m} so far (no time limit)…`),
+          })
+        : await getGamesProgressive(username, count, timeClass, setStatus);
       if (games.length === 0) {
         finish('No games found for that username / time class.');
         return;
@@ -79,8 +87,24 @@ export function Analyze({ navigate }: { navigate: (hash: string) => void }) {
       const plan = poolPlan();
       const pool = poolRef.current ?? (poolRef.current = new EnginePool(plan.size, plan.hashMb));
       setPhase('analyzing');
+      setStatus(`Analyzing ${games.length} games with ${plan.size} engines — this runs in your browser…`);
       // Analyze games concurrently — one per worker — for a near-linear speedup.
+      // Report per-position so the UI keeps moving even within a single game
+      // (each game is ~30s of engine time, so game-level updates alone look hung).
       let gamesDone = 0;
+      let positions = 0;
+      let lastShown = 0;
+      const showProgress = () => {
+        setStatus(`Analyzing… ${gamesDone}/${games.length} games · ${positions} positions evaluated (${plan.size} engines)`);
+      };
+      const onPosition = () => {
+        positions++;
+        const now = Date.now();
+        if (now - lastShown > 250) {
+          lastShown = now;
+          showProgress();
+        }
+      };
       const reviews = await Promise.all(
         games.map((game) =>
           pool.run(async (engine) => {
@@ -89,9 +113,10 @@ export function Analyze({ navigate }: { navigate: (hash: string) => void }) {
               depth,
               side,
               analyze: (fen, d, mpv) => engine.analyze(fen, d, mpv),
+              onProgress: onPosition,
             });
             gamesDone++;
-            setStatus(`Analyzed ${gamesDone}/${games.length} games (${pool.size} engines running)…`);
+            showProgress();
             return { game, side, errors } as GameReview;
           }),
         ),
@@ -166,6 +191,17 @@ export function Analyze({ navigate }: { navigate: (hash: string) => void }) {
               {t.label}
             </button>
           ))}
+        </div>
+        <div class="az-presets">
+          <span class="az-lbl">Fetch</span>
+          <button
+            class={`az-chip ${waitForAll ? 'on' : ''}`}
+            disabled={busy}
+            title="Pull exactly the requested count, however long it takes (no time-budget step-down)."
+            onClick={() => setWaitForAll((v) => !v)}
+          >
+            {waitForAll ? '✓ Wait for all' : 'Wait for all'}
+          </button>
         </div>
 
         {heavyWarning && !busy && (

@@ -118,16 +118,26 @@ export async function getGames(username: string, opts: FetchOptions): Promise<Ch
   return out.sort((a, b) => b.end_time - a.end_time);
 }
 
-/** Per-attempt wall-clock budget for the progressive fallback. */
-const ATTEMPT_BUDGET_MS = 10_000;
+/**
+ * Per-attempt wall-clock budget, scaled to how many games are being pulled:
+ * more games legitimately need more archive-walking time, so the minimum wait
+ * grows with the target (floor 10s, ceiling 60s). ~0.6s per requested game.
+ */
+export function budgetMsFor(target: number): number {
+  return Math.min(60_000, Math.max(10_000, Math.round(target * 600)));
+}
 
 /**
  * Robust front door for the analyzer. Tries to fetch `desired` games within a
- * short time budget; if that comes back nearly empty (slow/flaky API), it backs
- * off to progressively smaller targets — 50, 25, 10, 5, 3, 2, 1 — each with its
- * own budget. The first attempt that pulls a useful number of games wins. If
- * even a single-game fetch fails, the API is genuinely unreachable (or the
- * username is wrong), and we throw a clear error instead of hanging.
+ * time budget scaled to the request size; if that comes back nearly empty
+ * (slow/flaky API), it backs off to progressively smaller targets — 50, 25, 10,
+ * 5, 3, 2, 1 — each with its own (smaller) budget. The first attempt that pulls
+ * a useful number of games wins. If even a single-game fetch fails, the API is
+ * genuinely unreachable (or the username is wrong), and we throw a clear error
+ * instead of hanging.
+ *
+ * For "give me exactly N, however long it takes", call `getGames` directly with
+ * no `deadline` (see the wait-for-all path in the Analyze screen).
  *
  * @param onStatus surfaces human-readable progress for the UI.
  */
@@ -143,12 +153,13 @@ export async function getGamesProgressive(
   let lastErr: Error | null = null;
 
   for (const target of targets) {
-    onStatus?.(`Fetching ${username}'s ${target} most recent ${label}game${target === 1 ? '' : 's'} (≤${ATTEMPT_BUDGET_MS / 1000}s)…`);
+    const budgetMs = budgetMsFor(target);
+    onStatus?.(`Fetching ${username}'s ${target} most recent ${label}game${target === 1 ? '' : 's'} (≤${Math.round(budgetMs / 1000)}s)…`);
     try {
       const games = await getGames(username, {
         max: target,
         timeClass,
-        deadline: Date.now() + ATTEMPT_BUDGET_MS,
+        deadline: Date.now() + budgetMs,
         onProgress: (collected) =>
           onStatus?.(`Fetched ${collected}/${target} ${label}game${collected === 1 ? '' : 's'}…`),
       });
@@ -157,7 +168,7 @@ export async function getGamesProgressive(
       const bar = target > 10 ? 11 : 1;
       if (games.length >= bar) return games;
       // Too few for this target within the budget — step down and try again.
-      onStatus?.(`Only got ${games.length} in ${ATTEMPT_BUDGET_MS / 1000}s — trying fewer…`);
+      onStatus?.(`Only got ${games.length} in ${Math.round(budgetMs / 1000)}s — trying fewer…`);
     } catch (err) {
       lastErr = err instanceof Error ? err : new Error(String(err));
       onStatus?.(`Fetching ${target} timed out — trying fewer…`);

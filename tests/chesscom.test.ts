@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getGames, getGamesProgressive, playerColor, type ChessComGame } from '../src/chess/chesscom';
+import { budgetMsFor, getGames, getGamesProgressive, playerColor, type ChessComGame } from '../src/chess/chesscom';
 
 function game(partial: Partial<ChessComGame> & { end_time: number }): ChessComGame {
   return {
@@ -130,5 +130,16 @@ describe('getGamesProgressive', () => {
   it('throws a clear error when even a single game cannot be fetched', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('network down'); }));
     await expect(getGamesProgressive('kunwar101', 50, 'rapid')).rejects.toThrow(/Couldn't fetch even one game/);
+  });
+});
+
+describe('budgetMsFor', () => {
+  it('grows the wait with the game count, within a 10s–60s band', () => {
+    expect(budgetMsFor(1)).toBe(10_000); // floor
+    expect(budgetMsFor(10)).toBe(10_000); // still at the floor
+    expect(budgetMsFor(25)).toBe(15_000);
+    expect(budgetMsFor(50)).toBe(30_000);
+    expect(budgetMsFor(100)).toBe(60_000); // ceiling
+    expect(budgetMsFor(1000)).toBe(60_000); // capped
   });
 });
