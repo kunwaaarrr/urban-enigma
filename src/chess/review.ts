@@ -1,8 +1,20 @@
 import { Chess } from 'chess.js';
-import { evalToCp, MATE_CP, type EngineEval } from './engine';
+import { evalToCp, MATE_CP, type EngineEval, type EngineLine } from './engine';
 
 /** Anything that can score a FEN (the real Engine, or a fake in tests). */
 export type Evaluator = (fen: string, depth?: number) => Promise<EngineEval>;
+
+/** Returns the top-N candidate moves for a FEN (the real Engine, or a fake). */
+export type Analyzer = (fen: string, depth?: number, multipv?: number) => Promise<EngineLine[]>;
+
+/** A candidate move with a normalized score (centipawns, side-to-move frame). */
+export interface AltMove {
+  san: string;
+  from: string;
+  to: string;
+  /** Normalized centipawns (mate folded in via evalToCp), higher = better. */
+  score: number;
+}
 
 export type ErrorTag = 'inaccuracy' | 'mistake' | 'blunder';
 export type Phase = 'opening' | 'middlegame' | 'endgame';
@@ -36,6 +48,8 @@ export interface MoveError {
   phase: Phase;
   fenBefore: string;
   fenAfter: string;
+  /** Top engine moves at this position (best first), for graded drill feedback. */
+  alts?: AltMove[];
 }
 
 export interface ReviewThresholds {
@@ -65,6 +79,21 @@ function uciToSan(fen: string, uci: string): string {
   }
 }
 
+/** Convert raw MultiPV engine lines into named, scored, legal candidate moves. */
+export function linesToAlts(fen: string, lines: EngineLine[]): AltMove[] {
+  const alts: AltMove[] = [];
+  for (const line of lines) {
+    const uci = line.uci ?? '';
+    if (uci.length < 4) continue;
+    const from = uci.slice(0, 2);
+    const to = uci.slice(2, 4);
+    const san = uciToSan(fen, uci);
+    if (san === uci) continue; // illegal / unparseable — skip
+    alts.push({ san, from, to, score: evalToCp({ cp: line.cp, mate: line.mate, bestMove: uci }) });
+  }
+  return alts;
+}
+
 export interface ReviewOptions {
   depth?: number;
   thresholds?: ReviewThresholds;
@@ -72,6 +101,10 @@ export interface ReviewOptions {
   side?: 'w' | 'b';
   /** Progress callback: (pliesDone, pliesTotal). */
   onProgress?: (done: number, total: number) => void;
+  /** If provided, attach the top-N candidate moves to each flagged error. */
+  analyze?: Analyzer;
+  /** How many candidate moves to fetch when `analyze` is set. */
+  altMultipv?: number;
 }
 
 /**
@@ -83,7 +116,7 @@ export interface ReviewOptions {
  * negated into S's frame, so a hung queen yields ~+900 + ~+900 → ~900 lost.
  */
 export async function reviewGame(pgn: string, evaluate: Evaluator, opts: ReviewOptions = {}): Promise<MoveError[]> {
-  const { depth = 12, thresholds = DEFAULT_THRESHOLDS, side, onProgress } = opts;
+  const { depth = 12, thresholds = DEFAULT_THRESHOLDS, side, onProgress, analyze, altMultipv = 3 } = opts;
 
   const replay = new Chess();
   replay.loadPgn(pgn);
@@ -151,5 +184,20 @@ export async function reviewGame(pgn: string, evaluate: Evaluator, opts: ReviewO
       fenAfter: i + 1 < fens.length ? fens[i + 1] : fenFinal,
     });
   }
+
+  // Second pass: attach the engine's top candidate moves to each flagged error
+  // so the drill can grade "good but not best" tries. Only runs on the handful
+  // of mistakes per game, so it's cheap next to the full first pass.
+  if (analyze) {
+    for (const e of errors) {
+      try {
+        const lines = await analyze(e.fenBefore, depth, altMultipv);
+        e.alts = linesToAlts(e.fenBefore, lines);
+      } catch {
+        /* leave alts undefined — the drill falls back to best-move-only feedback */
+      }
+    }
+  }
+
   return errors;
 }

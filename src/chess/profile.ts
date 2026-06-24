@@ -1,6 +1,8 @@
 import { Chess } from 'chess.js';
 import type { ChessComGame } from './chesscom';
-import type { ErrorTag, MoveError, Phase } from './review';
+import type { AltMove, ErrorTag, MoveError, Phase } from './review';
+
+export type { AltMove } from './review';
 
 export interface GameReview {
   game: ChessComGame;
@@ -27,11 +29,56 @@ export interface DrillPuzzle {
   loss: number;
   moveNumber: number;
   gameUrl: string;
+  /** Top engine moves at this position (best first), for graded feedback. */
+  alts?: AltMove[];
 }
 
 /** A drill is solved if the played move matches the engine's best move. */
 export function isCorrectMove(p: DrillPuzzle, from: string, to: string): boolean {
   return from === p.bestFrom && to === p.bestTo;
+}
+
+export type DrillVerdict =
+  | { kind: 'correct' }
+  | { kind: 'good-alt'; message: string }
+  | { kind: 'same-move'; message: string }
+  | { kind: 'wrong'; message: string };
+
+/** Centipawn gap below which a non-best move is "almost as good". */
+const NEAR_BEST_CP = 30;
+/** Gap below which a move is still "decent, but there's better". */
+const DECENT_CP = 90;
+
+/**
+ * Grade a move played in the drill. Beyond right/wrong, this recognizes the
+ * engine's 2nd/3rd-best moves (so a reasonable try gets "not bad, but there's
+ * better") and calls out repeating the exact mistake from the real game.
+ */
+export function gradeDrillMove(p: DrillPuzzle, from: string, to: string): DrillVerdict {
+  if (isCorrectMove(p, from, to)) return { kind: 'correct' };
+
+  const isGameMove = from === p.playedFrom && to === p.playedTo;
+  const alts = p.alts ?? [];
+  const bestScore = alts[0]?.score;
+  const alt = alts.find((a) => a.from === from && a.to === to);
+
+  // A move the engine actually rates among the top candidates.
+  if (alt && bestScore !== undefined) {
+    const drop = bestScore - alt.score; // >= 0; how much worse than the best
+    if (drop <= NEAR_BEST_CP) {
+      return { kind: 'good-alt', message: `Strong — ${alt.san} is almost as good as the top move. Can you find the very best?` };
+    }
+    if (drop <= DECENT_CP) {
+      return { kind: 'good-alt', message: `Not the worst — ${alt.san} is playable, but there's a clearly better move here.` };
+    }
+    return { kind: 'good-alt', message: `${alt.san} keeps you in the game, but it gives up a lot — there's much stronger.` };
+  }
+
+  if (isGameMove) {
+    return { kind: 'same-move', message: "That's the same move you played in the game — and it's why this is a drill. Look for better." };
+  }
+
+  return { kind: 'wrong', message: "That's not among the engine's top moves — try again, or reveal the answer." };
 }
 
 const TAG_RANK: Record<ErrorTag, number> = { blunder: 0, mistake: 1, inaccuracy: 2 };
@@ -61,6 +108,7 @@ export function buildDrills(reviews: GameReview[], maxPuzzles = 60): DrillPuzzle
         loss: e.loss,
         moveNumber: e.moveNumber,
         gameUrl: r.game.url,
+        alts: e.alts,
       });
     }
   }

@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { gamePhase, type MoveError, type ErrorTag, type Phase } from '../src/chess/review';
+import { gamePhase, type AltMove, type MoveError, type ErrorTag, type Phase } from '../src/chess/review';
 import {
   buildDrills,
   buildProfile,
+  gradeDrillMove,
   isCorrectMove,
   openingName,
   outcome,
+  type DrillPuzzle,
   type GameReview,
 } from '../src/chess/profile';
 import type { ChessComGame } from '../src/chess/chesscom';
@@ -155,5 +157,63 @@ describe('isCorrectMove', () => {
     ]);
     expect(isCorrectMove(drill, 'g1', 'f3')).toBe(true);
     expect(isCorrectMove(drill, 'd1', 'h5')).toBe(false);
+  });
+});
+
+describe('gradeDrillMove', () => {
+  // Best Nf3 (+50), 2nd Bc4 (+30, -20 from best), 3rd d4 (-40, -90 from best).
+  const alts: AltMove[] = [
+    { san: 'Nf3', from: 'g1', to: 'f3', score: 50 },
+    { san: 'Bc4', from: 'f1', to: 'c4', score: 30 },
+    { san: 'd4', from: 'd2', to: 'd4', score: -40 },
+  ];
+  const puzzle: DrillPuzzle = {
+    fen: 'startpos',
+    orientation: 'w',
+    bestFrom: 'g1',
+    bestTo: 'f3',
+    bestSan: 'Nf3',
+    playedSan: 'Qh5',
+    playedFrom: 'd1',
+    playedTo: 'h5',
+    tag: 'blunder',
+    phase: 'opening',
+    loss: 300,
+    moveNumber: 6,
+    gameUrl: 'g',
+    alts,
+  };
+
+  it('accepts the engine best move', () => {
+    expect(gradeDrillMove(puzzle, 'g1', 'f3')).toEqual({ kind: 'correct' });
+  });
+
+  it('recognizes a near-best alternative', () => {
+    const v = gradeDrillMove(puzzle, 'f1', 'c4');
+    expect(v.kind).toBe('good-alt');
+    expect('message' in v && v.message).toMatch(/almost as good/);
+  });
+
+  it('recognizes a decent-but-worse alternative', () => {
+    const v = gradeDrillMove(puzzle, 'd2', 'd4');
+    expect(v.kind).toBe('good-alt');
+    expect('message' in v && v.message).toMatch(/not the worst|playable/i);
+  });
+
+  it('calls out repeating the exact game move', () => {
+    const v = gradeDrillMove(puzzle, 'd1', 'h5');
+    expect(v.kind).toBe('same-move');
+  });
+
+  it('rejects an unrelated move not in the top list', () => {
+    const v = gradeDrillMove(puzzle, 'a2', 'a3');
+    expect(v.kind).toBe('wrong');
+  });
+
+  it('falls back gracefully when no alternatives are stored', () => {
+    const noAlts = { ...puzzle, alts: undefined };
+    expect(gradeDrillMove(noAlts, 'g1', 'f3').kind).toBe('correct');
+    expect(gradeDrillMove(noAlts, 'd1', 'h5').kind).toBe('same-move');
+    expect(gradeDrillMove(noAlts, 'a2', 'a3').kind).toBe('wrong');
   });
 });

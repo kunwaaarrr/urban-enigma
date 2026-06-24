@@ -1,7 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import { Chess } from 'chess.js';
-import { reviewGame, type Evaluator } from '../src/chess/review';
-import { evalToCp, MATE_CP, type EngineEval } from '../src/chess/engine';
+import { linesToAlts, reviewGame, type Evaluator } from '../src/chess/review';
+import { evalToCp, MATE_CP, type EngineEval, type EngineLine } from '../src/chess/engine';
+
+describe('linesToAlts', () => {
+  it('names legal moves, scores them, and drops illegal/unparseable lines', () => {
+    const start = new Chess().fen();
+    const lines: EngineLine[] = [
+      { uci: 'e2e4', cp: 30 },
+      { uci: 'g1f3', cp: 20 },
+      { uci: 'e2e5', cp: 999 }, // illegal from the start position → dropped
+      { uci: 'd2d4', mate: 5 }, // mate score folds into a large cp value
+    ];
+    const alts = linesToAlts(start, lines);
+    expect(alts.map((a) => a.san)).toEqual(['e4', 'Nf3', 'd4']);
+    expect(alts[0].score).toBe(30);
+    expect(alts[2].score).toBe(evalToCp({ mate: 5, bestMove: 'd2d4' }));
+  });
+});
 
 /** Build the FEN-before-each-move sequence plus the final FEN, like reviewGame. */
 function fenSequence(pgn: string): string[] {
