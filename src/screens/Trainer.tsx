@@ -61,7 +61,12 @@ export function Trainer({ line, mode, onBack, onNextLine, onProgressChange }: Pr
           recordResult(prev.line.id, effect.clean);
           onProgressChange?.();
         } else if (effect.type === 'play-sound') {
-          playSound(effect.sound);
+          const LAND_SOUNDS = new Set(['move', 'capture', 'check', 'castle', 'promote']);
+          if (LAND_SOUNDS.has(effect.sound)) {
+            setTimeout(() => playSound(effect.sound), 300);
+          } else {
+            playSound(effect.sound);
+          }
         }
       }
       return next;

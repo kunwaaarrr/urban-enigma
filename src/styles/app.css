@@ -163,7 +163,7 @@ button {
   height: 12.5%;
   pointer-events: none;
   z-index: 2;
-  transition: left 0.18s ease, top 0.18s ease;
+  transition: left 0.3s ease, top 0.3s ease;
   will-change: left, top;
 }
 .piece img {
