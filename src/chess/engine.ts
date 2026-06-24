@@ -82,7 +82,7 @@ export class Engine {
       let bestMove = '';
       this.send(`position fen ${fen}`);
       this.send(`go depth ${depth}`);
-      await this.await_(
+      const pEval = this.await_(
         (l) => l.startsWith('bestmove'),
         (line) => {
           if (line.startsWith('info') && line.includes(' pv ')) {
@@ -100,6 +100,11 @@ export class Engine {
           }
         },
       );
+      // Safety net: if bestmove never arrives (e.g. edge-case terminal position),
+      // send "stop" after 10 s — Stockfish then emits bestmove with what it has.
+      const stopTimer = setTimeout(() => this.send('stop'), 10_000);
+      await pEval;
+      clearTimeout(stopTimer);
       return { cp, mate, bestMove };
     };
     // Chain so concurrent callers don't interleave UCI commands.
