@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { TopBar } from '../components/ui';
-import { getGames, playerColor, type TimeClass } from '../chess/chesscom';
+import { getGamesProgressive, playerColor, type TimeClass } from '../chess/chesscom';
 import { EnginePool, poolPlan } from '../chess/engine-pool';
 import { reviewGame } from '../chess/review';
 import { buildDrills, buildProfile, type GameReview, type Profile } from '../chess/profile';
@@ -71,7 +71,7 @@ export function Analyze({ navigate }: { navigate: (hash: string) => void }) {
     tick.current = window.setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 1000);
 
     try {
-      const games = await getGames(username, { max: count, timeClass });
+      const games = await getGamesProgressive(username, count, timeClass, setStatus);
       if (games.length === 0) {
         finish('No games found for that username / time class.');
         return;

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getGames, playerColor, type ChessComGame } from '../src/chess/chesscom';
+import { getGames, getGamesProgressive, playerColor, type ChessComGame } from '../src/chess/chesscom';
 
 function game(partial: Partial<ChessComGame> & { end_time: number }): ChessComGame {
   return {
@@ -84,5 +84,51 @@ describe('getGames', () => {
   it('throws a helpful error on 404 (bad username)', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404, json: async () => ({}) })));
     await expect(getGames('nope', { max: 5 })).rejects.toThrow(/check the username/);
+  });
+});
+
+describe('getGamesProgressive', () => {
+  const archivesUrl = 'https://api.chess.com/pub/player/kunwar101/games/archives';
+  const nov = 'https://api.chess.com/pub/player/kunwar101/games/2023/11';
+
+  it('returns games from the first attempt when the big request succeeds', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => ({
+        ok: true,
+        status: 200,
+        json: async () =>
+          url === archivesUrl
+            ? { archives: [nov] }
+            : { games: Array.from({ length: 30 }, (_, i) => game({ end_time: i, time_class: 'rapid' })) },
+      })),
+    );
+    const games = await getGamesProgressive('Kunwar101', 100, 'rapid');
+    expect(games).toHaveLength(30); // >10, so the desired=100 attempt is kept as-is
+  });
+
+  it('steps down to a smaller target when the big request comes back nearly empty', async () => {
+    // Only 3 rapid games exist — below the >10 bar for big targets, so it falls
+    // through to the target=10 attempt, which accepts whatever it gets.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => ({
+        ok: true,
+        status: 200,
+        json: async () =>
+          url === archivesUrl
+            ? { archives: [nov] }
+            : { games: Array.from({ length: 3 }, (_, i) => game({ end_time: i, time_class: 'rapid' })) },
+      })),
+    );
+    const seen: string[] = [];
+    const games = await getGamesProgressive('kunwar101', 100, 'rapid', (m) => seen.push(m));
+    expect(games).toHaveLength(3);
+    expect(seen.some((m) => /trying fewer/.test(m))).toBe(true);
+  });
+
+  it('throws a clear error when even a single game cannot be fetched', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('network down'); }));
+    await expect(getGamesProgressive('kunwar101', 50, 'rapid')).rejects.toThrow(/Couldn't fetch even one game/);
   });
 });
