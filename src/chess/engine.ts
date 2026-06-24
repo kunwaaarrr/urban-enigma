@@ -59,7 +59,23 @@ export class Engine {
    */
   constructor(engineUrl: string = defaultEngineUrl(), hashMb = 64) {
     this.worker = new Worker(engineUrl);
-    this.ready = this.handshake(hashMb);
+    // Wire this.ready so it can *reject* — without this, a worker that fails
+    // to load or throws during init leaves this.ready pending forever, which
+    // silently hangs every downstream evaluate() / analyze() call.
+    this.ready = new Promise<void>((resolve, reject) => {
+      const onError = (e: ErrorEvent) =>
+        reject(new Error(`Engine worker failed to load: ${e.message || engineUrl}`));
+      this.worker.addEventListener('error', onError, { once: true });
+      const INIT_TIMEOUT_MS = 30_000;
+      const timer = setTimeout(
+        () => reject(new Error(`Engine timed out initializing (${INIT_TIMEOUT_MS / 1000}s)`)),
+        INIT_TIMEOUT_MS,
+      );
+      this.handshake(hashMb).then(
+        () => { clearTimeout(timer); this.worker.removeEventListener('error', onError); resolve(); },
+        (err) => { clearTimeout(timer); reject(err); },
+      );
+    });
   }
 
   private send(cmd: string) {
@@ -105,6 +121,7 @@ export class Engine {
   evaluate(fen: string, depth = 12): Promise<EngineEval> {
     const run = async (): Promise<EngineEval> => {
       await this.ready;
+      this.setMultiPv(1); // reset if a previous analyze() left it at >1
       let cp: number | undefined;
       let mate: number | undefined;
       let bestMove = '';

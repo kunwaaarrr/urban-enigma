@@ -85,9 +85,14 @@ export function Analyze({ navigate }: { navigate: (hash: string) => void }) {
         return;
       }
       const plan = poolPlan();
-      const pool = poolRef.current ?? (poolRef.current = new EnginePool(plan.size, plan.hashMb));
+      // Always create a fresh pool — stale engines from a previous run can be
+      // in an unknown state (terminated workers, pending queue items, wrong
+      // MultiPV setting). Dispose any leftover pool before creating a new one.
+      poolRef.current?.dispose();
+      poolRef.current = new EnginePool(plan.size, plan.hashMb);
+      const pool = poolRef.current;
       setPhase('analyzing');
-      setStatus(`Analyzing ${games.length} games with ${plan.size} engines — this runs in your browser…`);
+      setStatus(`Loading ${plan.size} engine worker${plan.size === 1 ? '' : 's'} (Stockfish WASM)…`);
       // Analyze games concurrently — one per worker — for a near-linear speedup.
       // Report per-position so the UI keeps moving even within a single game
       // (each game is ~30s of engine time, so game-level updates alone look hung).
