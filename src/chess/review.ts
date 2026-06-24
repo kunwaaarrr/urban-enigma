@@ -1,5 +1,5 @@
 import { Chess } from 'chess.js';
-import { evalToCp, type EngineEval } from './engine';
+import { evalToCp, MATE_CP, type EngineEval } from './engine';
 
 /** Anything that can score a FEN (the real Engine, or a fake in tests). */
 export type Evaluator = (fen: string, depth?: number) => Promise<EngineEval>;
@@ -111,8 +111,16 @@ export async function reviewGame(pgn: string, evaluate: Evaluator, opts: ReviewO
     bestUci.push(e.bestMove);
     report();
   }
-  const eAfterFinal = await evaluate(fenFinal, depth);
-  evalsByCp.push(evalToCp(eAfterFinal));
+  // Skip terminal positions (checkmate / stalemate) — Stockfish won't return
+  // bestmove for them and would hang forever. Assign a synthetic centipawn
+  // value so the last move's loss still computes correctly.
+  const endBoard = new Chess(fenFinal);
+  if (endBoard.isGameOver()) {
+    evalsByCp.push(endBoard.isCheckmate() ? -MATE_CP : 0);
+  } else {
+    const eAfterFinal = await evaluate(fenFinal, depth);
+    evalsByCp.push(evalToCp(eAfterFinal));
+  }
   report();
 
   const errors: MoveError[] = [];
