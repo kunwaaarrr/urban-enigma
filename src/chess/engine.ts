@@ -75,11 +75,11 @@ export class Engine {
   private initLog: string[] = [];
 
   /**
-   * @param hashMb Transposition-table size in MB. Bigger = fewer recomputed
-   *   positions = faster, at the cost of RAM. Kept modest so a pool of workers
-   *   doesn't blow up a phone's memory.
+   * @param _hashMb Accepted for API compatibility (EnginePool passes a hash
+   *   budget), but ignored: this vendored build has no settable Hash option, so
+   *   there's nothing to tune. Parallelism comes from multiple workers instead.
    */
-  constructor(engineUrl: string = defaultEngineUrl(), hashMb = 64) {
+  constructor(engineUrl: string = defaultEngineUrl(), _hashMb = 64) {
     this.worker = new Worker(engineUrl);
     // Wire this.ready so it can *reject* — without this, a worker that fails
     // to load or throws during init leaves this.ready pending forever, which
@@ -105,7 +105,7 @@ export class Engine {
       };
       const timer = setTimeout(() => fail(`Engine timed out initializing (${INIT_TIMEOUT_MS / 1000}s)`), INIT_TIMEOUT_MS);
 
-      this.handshake(hashMb).then(
+      this.handshake().then(
         () => {
           clearTimeout(timer);
           this.worker.removeEventListener('message', capture);
@@ -145,14 +145,15 @@ export class Engine {
     });
   }
 
-  private async handshake(hashMb: number): Promise<void> {
+  private async handshake(): Promise<void> {
     this.send('uci');
     await this.await_((l) => l.startsWith('uciok'));
-    // Give the engine a real transposition table (default is tiny) and pin it
-    // to one thread — our WASM build is single-threaded, parallelism comes from
-    // running several workers (see EnginePool).
-    this.send(`setoption name Hash value ${hashMb}`);
-    this.send('setoption name Threads value 1');
+    // Keep this minimal. This vendored single-threaded build (ddugovic
+    // multi-variant Stockfish) has NO settable "Hash" option — only "Clear
+    // Hash" — and its "Threads" option is backed by a real thread pool that
+    // hangs in WASM with no SharedArrayBuffer. Sending either setoption leaves
+    // `isready` with no `readyok`, bricking startup. Parallelism comes from
+    // running several single-threaded workers (see EnginePool), not threads.
     this.send('isready');
     await this.await_((l) => l.startsWith('readyok'));
   }
