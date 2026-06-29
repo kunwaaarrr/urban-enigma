@@ -23,20 +23,58 @@ export function poolPlan(): { size: number; hashMb: number } {
 }
 
 export class EnginePool {
-  private engines: Engine[];
-  private free: Engine[];
+  private engines: Engine[] = [];
+  private free: Engine[] = [];
   private waiters: ((e: Engine) => void)[] = [];
+  private readonly target: number;
+  private readonly makeEngine: () => Engine;
 
   /**
    * @param makeEngine factory (overridable in tests); defaults to a real Engine
    *   with the given hash budget.
    */
   constructor(size: number, hashMb = 64, makeEngine: () => Engine = () => new Engine(undefined, hashMb)) {
-    this.engines = Array.from({ length: Math.max(1, size) }, makeEngine);
-    this.free = [...this.engines];
+    this.target = Math.max(1, size);
+    this.makeEngine = makeEngine;
   }
 
   get size(): number {
+    return this.engines.length;
+  }
+
+  /**
+   * Bring engines up ONE AT A TIME (not all at once): spawning several Stockfish
+   * WASM workers simultaneously can stall or exhaust memory on weaker devices,
+   * which is exactly the "all engines time out" failure mode. We create each
+   * worker, wait for it to handshake, and only then start the next.
+   *
+   * - If the very first engine can't start, the build/worker is broken — throw
+   *   its (diagnostic) error immediately rather than retrying N times.
+   * - If a later engine fails, we keep the ones already up and stop adding more,
+   *   so the run proceeds (just with fewer workers).
+   *
+   * @returns the number of engines that came up (always >= 1 on success).
+   */
+  async warmup(onProgress?: (ready: number, target: number) => void): Promise<number> {
+    for (let i = 0; i < this.target; i++) {
+      const engine = this.makeEngine();
+      try {
+        await engine.whenReady();
+        this.engines.push(engine);
+        this.free.push(engine);
+        onProgress?.(this.engines.length, this.target);
+      } catch (err) {
+        engine.dispose();
+        if (this.engines.length === 0) {
+          throw err instanceof Error ? err : new Error(String(err));
+        }
+        break; // already have a working engine; don't burn time on more
+      }
+    }
+    // Hand newly-ready engines to anyone who called run() before warmup finished.
+    while (this.free.length && this.waiters.length) {
+      this.waiters.shift()!(this.free.pop()!);
+    }
     return this.engines.length;
   }
 
