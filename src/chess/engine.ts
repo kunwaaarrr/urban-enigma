@@ -35,6 +35,26 @@ export function defaultEngineUrl(): string {
 }
 
 /**
+ * When an engine fails to come up, fetch the .wasm directly and report exactly
+ * what the browser sees (status, MIME, size, magic bytes). This turns a vague
+ * "timed out" into an actionable diagnosis: 404 (wrong path), a tiny HTML/LFS
+ * pointer (bad deploy), or a wrong content-type that blocked instantiation.
+ */
+async function diagnoseWasm(engineUrl: string): Promise<string> {
+  const wasmUrl = engineUrl.replace(/stockfish\.wasm\.js(\?.*)?$/, 'stockfish.wasm');
+  try {
+    const res = await fetch(wasmUrl, { cache: 'no-store' });
+    const buf = await res.arrayBuffer();
+    const head = new Uint8Array(buf.slice(0, 4));
+    const magic = String.fromCharCode(...head); // valid wasm == "\0asm"
+    const ok = magic === '\0asm';
+    return `wasm@${wasmUrl}: HTTP ${res.status}, type=${res.headers.get('content-type') || '?'}, ${buf.byteLength}B, magic=${ok ? 'valid' : JSON.stringify(magic)}`;
+  } catch (e) {
+    return `wasm@${wasmUrl}: fetch failed — ${(e as Error).message}`;
+  }
+}
+
+/**
  * A move can't do better than the engine's best line, so when computing
  * centipawn loss we treat mate scores as a large finite value rather than
  * infinity, decaying with distance so "mate in 1" > "mate in 8".
@@ -51,6 +71,8 @@ export class Engine {
   private queue: Promise<unknown> = Promise.resolve();
   /** Current MultiPV setting; we only re-send the option when it changes. */
   private multipv = 1;
+  /** Messages seen before the engine is ready — surfaced if init fails. */
+  private initLog: string[] = [];
 
   /**
    * @param hashMb Transposition-table size in MB. Bigger = fewer recomputed
@@ -63,19 +85,45 @@ export class Engine {
     // to load or throws during init leaves this.ready pending forever, which
     // silently hangs every downstream evaluate() / analyze() call.
     this.ready = new Promise<void>((resolve, reject) => {
+      // Capture everything the worker prints during startup so a failure can
+      // report what (if anything) the engine actually said.
+      const capture = (e: MessageEvent) => {
+        if (typeof e.data === 'string' && this.initLog.length < 40) this.initLog.push(e.data);
+      };
+      this.worker.addEventListener('message', capture);
       const onError = (e: ErrorEvent) =>
-        reject(new Error(`Engine worker failed to load: ${e.message || engineUrl}`));
+        reject(new Error(`Engine worker error: ${e.message || 'failed to load'} (${engineUrl})`));
       this.worker.addEventListener('error', onError, { once: true });
-      const INIT_TIMEOUT_MS = 30_000;
-      const timer = setTimeout(
-        () => reject(new Error(`Engine timed out initializing (${INIT_TIMEOUT_MS / 1000}s)`)),
-        INIT_TIMEOUT_MS,
-      );
+      this.worker.addEventListener('messageerror', onError as EventListener, { once: true });
+
+      const INIT_TIMEOUT_MS = 25_000;
+      const fail = (reason: string) => {
+        diagnoseWasm(engineUrl).then((diag) => {
+          const said = this.initLog.length ? this.initLog.slice(-6).join(' | ') : '(no output)';
+          reject(new Error(`${reason}. Worker said: ${said}. ${diag}`));
+        }, () => reject(new Error(reason)));
+      };
+      const timer = setTimeout(() => fail(`Engine timed out initializing (${INIT_TIMEOUT_MS / 1000}s)`), INIT_TIMEOUT_MS);
+
       this.handshake(hashMb).then(
-        () => { clearTimeout(timer); this.worker.removeEventListener('error', onError); resolve(); },
+        () => {
+          clearTimeout(timer);
+          this.worker.removeEventListener('message', capture);
+          this.worker.removeEventListener('error', onError);
+          this.initLog = [];
+          resolve();
+        },
         (err) => { clearTimeout(timer); reject(err); },
       );
     });
+    // Don't let an unobserved rejection crash if nobody awaits immediately;
+    // whenReady()/evaluate()/analyze() will observe it.
+    this.ready.catch(() => {});
+  }
+
+  /** Resolves when the engine has handshaken; rejects if it failed to start. */
+  whenReady(): Promise<void> {
+    return this.ready;
   }
 
   private send(cmd: string) {

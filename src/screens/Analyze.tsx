@@ -92,7 +92,10 @@ export function Analyze({ navigate }: { navigate: (hash: string) => void }) {
       poolRef.current = new EnginePool(plan.size, plan.hashMb);
       const pool = poolRef.current;
       setPhase('analyzing');
-      setStatus(`Loading ${plan.size} engine worker${plan.size === 1 ? '' : 's'} (Stockfish WASM)…`);
+      // Warm up engines one at a time. If they all fail, this throws a detailed
+      // diagnostic (HTTP status / MIME / size of stockfish.wasm) we can act on.
+      setStatus(`Loading Stockfish engine${plan.size === 1 ? '' : 's'}…`);
+      const alive = await pool.warmup((r, t) => setStatus(`Loading Stockfish engines… ${r}/${t} ready`));
       // Analyze games concurrently — one per worker — for a near-linear speedup.
       // Report per-position so the UI keeps moving even within a single game
       // (each game is ~30s of engine time, so game-level updates alone look hung).
@@ -100,7 +103,7 @@ export function Analyze({ navigate }: { navigate: (hash: string) => void }) {
       let positions = 0;
       let lastShown = 0;
       const showProgress = () => {
-        setStatus(`Analyzing… ${gamesDone}/${games.length} games · ${positions} positions evaluated (${plan.size} engines)`);
+        setStatus(`Analyzing… ${gamesDone}/${games.length} games · ${positions} positions evaluated (${alive} engine${alive === 1 ? '' : 's'})`);
       };
       const onPosition = () => {
         positions++;
