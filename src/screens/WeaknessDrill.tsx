@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'preact/hooks';
+import { useEffect, useMemo, useState } from 'preact/hooks';
 import { Board, type BoardMove } from '../components/Board';
 import { TopBar } from '../components/ui';
 import { ProgressBar } from '../components/ui';
@@ -19,6 +19,16 @@ export function WeaknessDrill({ navigate }: { navigate: (hash: string) => void }
   const [wrongFlash, setWrongFlash] = useState<{ square: string; key: number } | null>(null);
   const [tries, setTries] = useState(0);
   const [verdict, setVerdict] = useState<DrillVerdict | null>(null);
+
+  // Once a puzzle is solved, hold for a beat (so the green confirmation + cue
+  // register) and then auto-advance to the next one. Only on 'correct' — when
+  // the answer is *revealed* we let the user study it and click Next themselves.
+  useEffect(() => {
+    if (status !== 'correct') return;
+    const t = setTimeout(() => next(), 1050);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, index]);
 
   if (drills.length === 0) {
     return (
@@ -118,7 +128,7 @@ export function WeaknessDrill({ navigate }: { navigate: (hash: string) => void }
           {p.orientation === 'w' ? 'White' : 'Black'} — find the better move.
         </div>
 
-        <div class="az-board">
+        <div class="az-board" onPointerDownCapture={() => unlockAudio()}>
           <Board
             fen={p.fen}
             orientation={p.orientation}
@@ -134,6 +144,15 @@ export function WeaknessDrill({ navigate }: { navigate: (hash: string) => void }
           <div class="wd-feedback good">
             ✅ Yes — <b>{p.bestSan}</b> was best{tries > 0 ? `, after ${tries} miss${tries === 1 ? '' : 'es'}` : ''}.
             {otherGoodMoves.length > 0 && <span class="wd-alts"> Also good: {otherGoodMoves.join(', ')}.</span>}
+          </div>
+        )}
+        {status === 'correct' && (
+          // Visual cue that we're moving on (the timer above auto-advances).
+          <div class="wd-advance" aria-hidden="true">
+            <span class="wd-advance-label">Next ▸</span>
+            <span class="wd-advance-bar">
+              <i />
+            </span>
           </div>
         )}
         {status === 'revealed' && (
