@@ -682,7 +682,8 @@ button {
 .az-pill.orange { background: #ffa459; }
 .az-pill.yellow { background: #f7c045; }
 .az-board {
-  max-width: 360px;
+  /* Grow on bigger screens but never taller than the viewport allows. */
+  max-width: min(440px, 72vh);
   margin: 10px auto 18px;
 }
 .az-board-cap {
@@ -856,6 +857,41 @@ button {
 .wd-feedback.bad { color: #f0786a; }
 .wd-feedback.alt { color: #e8b84b; }
 .wd-alts { display: block; margin-top: 4px; font-size: 13px; opacity: 0.75; }
+/* "moving on" cue shown after a correct answer while the auto-advance timer runs */
+.wd-advance {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 10px;
+  color: var(--green-hover);
+  font-weight: 800;
+  font-size: 13px;
+}
+.wd-advance-label { animation: wd-nudge 0.6s ease-in-out infinite alternate; }
+@keyframes wd-nudge {
+  from { transform: translateX(0); }
+  to { transform: translateX(5px); }
+}
+.wd-advance-bar {
+  width: 120px;
+  height: 4px;
+  background: var(--raised);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.wd-advance-bar i {
+  display: block;
+  height: 100%;
+  width: 100%;
+  background: var(--green);
+  transform-origin: left;
+  animation: wd-advance-fill 1.05s linear forwards;
+}
+@keyframes wd-advance-fill {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
 .wd-controls { margin-top: 12px; text-align: center; }
 .wd-done { text-align: center; padding: 24px 0; }
 .wd-done h2 { margin: 8px 0; }
@@ -865,4 +901,34 @@ button {
 @media (max-width: 480px) {
   .rp-summary { grid-template-columns: repeat(2, 1fr); }
   .rp-cols { grid-template-columns: 1fr; }
+}
+
+/* ---------- Desktop scale-up ----------
+   The whole UI is mobile-first and renders as a ~560px phone-width column, so
+   on a big screen everything looks tiny (hence the manual browser zoom). On a
+   roomy pointer (mouse/trackpad) device, scale the column up uniformly — the
+   automatic equivalent of zooming the browser. We use `zoom` rather than
+   `transform: scale` on purpose: the board's hit-testing is ratio-based against
+   getBoundingClientRect, and under `zoom` the pointer coordinates and the rect
+   stay in the same space, so dragging pieces keeps working (a transform would
+   desync them). `min-height` is divided back out so the flex column still fills
+   exactly one viewport and the action bar stays pinned (no phantom scrollbar).
+   Gated on `pointer: fine` so phones/tablets keep the untouched mobile size. */
+@media (min-width: 760px) and (min-height: 640px) and (pointer: fine) {
+  #app {
+    zoom: 1.3;
+    min-height: calc(100dvh / 1.3);
+  }
+}
+@media (min-width: 1280px) and (min-height: 860px) and (pointer: fine) {
+  #app {
+    zoom: 1.5;
+    min-height: calc(100dvh / 1.5);
+  }
+}
+@media (min-width: 1700px) and (min-height: 1040px) and (pointer: fine) {
+  #app {
+    zoom: 1.7;
+    min-height: calc(100dvh / 1.7);
+  }
 }

@@ -73,9 +73,17 @@ export function unlockAudio(): void {
 
 export function playSound(name: SoundName): void {
   if (isMuted()) return;
-  const el = audio(name);
-  if (!el) return;
+  const base = audio(name);
+  if (!base) return;
   try {
+    // Play a FRESH CLONE each time rather than the shared cached element.
+    // unlockAudio() primes the cached elements at volume 0 and pauses them in a
+    // later microtask; reusing the same element meant the first real play could
+    // start at volume 0 and then get paused by the unlock cleanup — which is why
+    // the drill sometimes seemed silent. A clone is independent (correct volume,
+    // own playback) and also lets sounds overlap (e.g. move + check).
+    const el = (typeof base.cloneNode === 'function' ? (base.cloneNode(true) as HTMLAudioElement) : base);
+    el.volume = 1;
     el.currentTime = 0;
     void el.play().catch(() => {
       /* autoplay blocked or not yet unlocked — ignore */
